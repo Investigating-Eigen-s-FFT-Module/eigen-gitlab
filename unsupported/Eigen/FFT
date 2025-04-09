@@ -25,10 +25,11 @@ enum FFTOptions : int {
   OutPlace = 0x10,
   Threaded = 0x11,  // TODO: may need more specific flags (threading implementation, nr threads ...)
   Serial = 0x12,
-  Default = Scaled | OutPlace | Serial,
+  Default = Scaled | OutPlace | Serial
   // TODO: Move these to the implementation-specific headers. Only here for now for reference.
   // FFTW API flags
   // PlanMeasure
+  // PlanExhaustive (or patient or whatev it's called)
   // PlanWisdom // TODO: bother with this?
   // PlanEstimate
   // PocketFFT API flags
@@ -36,41 +37,36 @@ enum FFTOptions : int {
 };
 
 namespace internal {
+// traits here
+}  // namespace internal
 
-  template <FFTOptions Options>
-  struct fft_opt_traits {
-    // TODO: Refine for C2R and create custom DenseBase that lazily computes antisymmetric coefficients
-    using FwdReturnType = FFTType::Base::PlainObject;
-    using InvReturnType = FFTType::Base::PlainObject;
-  };
-} // namespace internal
-
-template <typename Derived, FFTOptions Options_ = FFTOptions::Default>
+template <typename MatrixType_, int Options_ = FFTOptions::Default>
 class FFT {
-  // TODO: statically assert that Derived is a derived type of DenseBase (or set the template param in a more sensible way)
-  using Base = DenseBase<Derived>; // TODO: find better name...
-  using Scalar = Base::Scalar;
-  using RealScalar = Base::RealScalar;
-  using FwdReturnType = internal::fft_opt_traits<Options_>::FwdReturnType;
-  using InvReturnType = internal::fft_opt_traits<Options_>::InvReturnType;
+  // TODO: statically assert that MatrixType_ implements needed stuff
+
+  typedef MatrixType_ MatrixType;
+  typedef typename Base::Scalar Scalar;
+  typedef typename Base::RealScalar RealScalar;
 
  public:
   // TODO: remove unnecessary
   enum : int {
     Options = Options_,
-    RowsAtCompileTime = Base::RowsAtCompileTime,
-    ColsAtCompileTime = Base::ColsAtCompileTime,
-    SizeAtCompileTime = Base::SizeAtCompileTime,
-    MaxRowsAtCompileTime = Base::MaxRowsAtCompileTime,
-    MaxColsAtCompileTime = Base::MaxColsAtCompileTime,
-    MaxSizeAtCompileTime = Base::MaxSizeAtCompileTime
-    StorageKind = Base::StorageKind,
-    IsVectorAtCompileTime = Base::IsVectorAtCompileTime,
+    MatrixOptions = MatrixType::Flags,
+    RowsAtCompileTime = MatrixType::RowsAtCompileTime,
+    ColsAtCompileTime = MatrixType::ColsAtCompileTime,
+    SizeAtCompileTime = MatrixType::SizeAtCompileTime,
+    MaxRowsAtCompileTime = MatrixType::MaxRowsAtCompileTime,
+    MaxColsAtCompileTime = MatrixType::MaxColsAtCompileTime,
+    MaxSizeAtCompileTime = MatrixType::MaxSizeAtCompileTime
   };
 
-  FFT();
+  typedef typename FwdMatrixType internal::traits<FFT>::FwdMatrixType;
+  typedef typename InvMatrixType internal::traits<FFT>::InvMatrixType;
 
-  FFT(const Base& /*obj*/);
+  FFT() {}
+
+  FFT(const MatrixType& /*obj*/);
 
   FFT(Index rows, Index cols);
 
@@ -78,23 +74,52 @@ class FFT {
 
   // TODO: How to handle Copy, Assignment etc. of FFT?
 
-  template <typename OutputDerived>
-  inline void fwd(const OutputDerived& dst, const Base& src) {
-    // TODO: which checks to do beforehand?
-    fwd_impl<Options, RowsAtCompileTime, ColsAtCompileTime, StorageKind>(dst.eval(), src.eval()); // eval to get plain objects with computed data in memory
+  // TODO: binary call using unary
+
+  
+  // Draft for specializations:
+  // Both rows and cols known @ compiletime
+  //  rows == 1
+  //   simply call default constructor
+  //  cols == 1
+  //   simply call default constructor
+  //  else
+  //   simply call default constructor
+  // Only rows known at compiletime
+  //  rows == 1
+  //   max cols known at compiletime
+  //     call constructor with runtime size arg
+  //   else
+  //     call constructor with runtime size arg
+  // Only cols known at compiletime
+  //  same as above
+  // Neither rows nor cols known at compiletime
+  //  call constructor with runtime size arg
+  // UNLESS InPlace: Do not allocate at all
+
+  // TODO: This general template case should probably never be reached, add error if so
+  template <int RowsAtCompileTime, int ColsAtCompileTime, int MaxRowsAtCompileTime, int MaxColsAtCompileTime, int MatrixOptions, int Options>
+  inline void allocate_fwd() {}
+  template <int RowsAtCompileTime, int ColsAtCompileTime, int MaxRowsAtCompileTime, int MaxColsAtCompileTime, int MatrixOptions, int Options>
+  inline void allocate_inv() {}
+
+  const FwdMatrixType& fwd(const MatrixType& src) {
+
   }
 
-  inline FwdReturnType fwd(Base& src) {
-    return fwd_impl<Options, RowsAtCompileTime, ColsAtCompileTime, StorageKind>(src.eval());
-  }
+  // TODO: inv calls, plan API calls
 
  private:
-
-
-
-
   // TODO: Handle run-time options
   const int m_opts;
+
+
+  // TODO: Maybe handle this check statically too
+  bool m_fwd_allocated;
+  bool m_inv_allocated;
+
+  FwdMatrixType m_fwd;
+  InvMatrixType m_fwd;
 };
 }  // namespace Eigen
 
