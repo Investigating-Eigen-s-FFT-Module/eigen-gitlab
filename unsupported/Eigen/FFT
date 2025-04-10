@@ -37,21 +37,16 @@ enum FFTOptions : int {
 };
 
 namespace internal {
-// traits here
-}  // namespace internal
+enum FFTDirection : int { Forward = 1, Inverse = -1 };
 
-template <typename MatrixType_, int Options_ = FFTOptions::Default>
-class FFT {
-  // TODO: statically assert that MatrixType_ implements needed stuff
+template <typename Derived>
+struct fft_mat_traits : traits<MatrixBase<Derived>> {
+  typedef MatrixBase<Derived> MatrixType;
+  typedef typename MatrixType::Scalar Scalar;
+  typedef typename MatrixType::RealScalar RealScalar;
 
-  typedef MatrixType_ MatrixType;
-  typedef typename Base::Scalar Scalar;
-  typedef typename Base::RealScalar RealScalar;
-
- public:
   // TODO: remove unnecessary
   enum : int {
-    Options = Options_,
     MatrixOptions = MatrixType::Flags,
     RowsAtCompileTime = MatrixType::RowsAtCompileTime,
     ColsAtCompileTime = MatrixType::ColsAtCompileTime,
@@ -61,65 +56,139 @@ class FFT {
     MaxSizeAtCompileTime = MatrixType::MaxSizeAtCompileTime
   };
 
-  typedef typename FwdMatrixType internal::traits<FFT>::FwdMatrixType;
-  typedef typename InvMatrixType internal::traits<FFT>::InvMatrixType;
+  typedef Matrix<RealScalar, RowsAtCompileTime, ColsAtCompileTime,
+                 AutoAlign | (Flags & RowMajorBit ? RowMajor : ColMajor), MaxRowsAtCompileTime, MaxColsAtCompileTime>
+      PlainRealMatrixType;
 
-  FFT() {}
+  typedef Matrix<std::complex<RealScalar>, RowsAtCompileTime, ColsAtCompileTime,
+                 AutoAlign | (Flags & RowMajorBit ? RowMajor : ColMajor), MaxRowsAtCompileTime, MaxColsAtCompileTime>
+      PlainComplexMatrixType;
 
-  FFT(const MatrixType& /*obj*/);
+  // TODO: which other bit flags for matrix options (in Constants.h) should also be considered?
+  // TODO: Let Options override flags
+  static constexpr bool SizeKnownAtCompileTime = (SizeAtCompileTime != Dynamic);
+  static constexpr bool MaxSizeKnownAtCompileTime = (MaxSizeAtCompileTime != Dynamic);
+  static constexpr bool IsVectorAtCompileTime = MatrixType::IsVectorAtCompileTime;
+  // TODO: add some overload magic to specialize based on a return type too
+  static constexpr bool IsComplex = NumTraits::IsComplex<Scalar>;
+  static constexpr bool DirectAccess = (MatrixOptions & DirectAccessBit);
+};
 
-  FFT(Index rows, Index cols);
+template <typename SrcMatrixType_, typename DstMatrixType_>
+struct fft_traits {
+  typedef SrcMatrixType_ SrcMatrixType;
+  typedef DstMatrixType_ DstMatrixType;
+  typedef fft_mat_traits<SrcMatrixType> src_traits;
+  typedef fft_mat_traits<DstMatrixType> dst_traits;
 
-  FFT(Index size);
+  typedef typename dst_traits::PlainRealMatrixType PlainRealDstMatrixType;
+  typedef typename dst_traits::PlainComplexMatrixType PlainComplexDstMatrixType;
 
-  // TODO: How to handle Copy, Assignment etc. of FFT?
+  static constexpr bool SrcSizeKnownAtCompileTime = src_traits::SizeKnownAtCompileTime;
+  static constexpr bool DstSizeKnownAtCompileTime = dst_traits::SizeKnownAtCompileTime;
+  static constexpr bool SrcMaxSizeKnownAtCompileTime = src_traits::MaxSizeKnownAtCompileTime;
+  static constexpr bool DstMaxSizeKnownAtCompileTime = dst_traits::MaxSizeKnownAtCompileTime;
+  static constexpr bool SrcIsVectorAtCompileTime = src_traits::IsVectorAtCompileTime;
+  static constexpr bool DstIsVectorAtCompileTime = dst_traits::IsVectorAtCompileTime;
+  static constexpr bool SrcIsComplex = src_traits::IsComplex;
+  static constexpr bool DstIsComplex = dst_traits::IsComplex;
+  static constexpr bool SrcDirectAccess = src_traits::DirectAccess;
+  static constexpr bool DstDirectAccess = dst_traits::DirectAccess;
+};
 
-  // TODO: binary call using unary
+template <typename SrcMatrixType_, typename DstMatrixType_, int Options_, int Direction>
+struct FFT_impl {};
 
-  
-  // Draft for specializations:
-  // Both rows and cols known @ compiletime
-  //  rows == 1
-  //   simply call default constructor
-  //  cols == 1
-  //   simply call default constructor
-  //  else
-  //   simply call default constructor
-  // Only rows known at compiletime
-  //  rows == 1
-  //   max cols known at compiletime
-  //     call constructor with runtime size arg
-  //   else
-  //     call constructor with runtime size arg
-  // Only cols known at compiletime
-  //  same as above
-  // Neither rows nor cols known at compiletime
-  //  call constructor with runtime size arg
-  // UNLESS InPlace: Do not allocate at all
+// TODO: use Options_ to override specializations below
+template <typename SrcMatrixType_, typename DstMatrixType_, int Options_>
+struct FFT_impl<SrcMatrixType_, DstMatrixType_, Options_, FFTDirection::Forward> {
+  typedef SrcMatrixType_ SrcMatrixType;
+  typedef DstMatrixType_ DstMatrixType;
+  typedef fft_traits<SrcMatrixType, DstMatrixType> traits;
 
-  // TODO: This general template case should probably never be reached, add error if so
-  template <int RowsAtCompileTime, int ColsAtCompileTime, int MaxRowsAtCompileTime, int MaxColsAtCompileTime, int MatrixOptions, int Options>
-  inline void allocate_fwd() {}
-  template <int RowsAtCompileTime, int ColsAtCompileTime, int MaxRowsAtCompileTime, int MaxColsAtCompileTime, int MatrixOptions, int Options>
-  inline void allocate_inv() {}
+  static constexpr bool IsComplexTransform = traits::SrcIsComplex;
+  static constexpr bool Is1DAtCompileTime = traits::DstIsVectorAtCompileTime;
 
-  const FwdMatrixType& fwd(const MatrixType& src) {
+  // TODO: static assert for whether Src is also a vector?
+  // TODO: See if halfspectrum specialization works for rowmajor
 
+  // Tags for dispatch
+  struct vector_tag {};
+  struct matrix_tag {};
+  struct complex_tag {};
+  struct real_tag {};
+  struct direct_access_tag {};
+  struct indirect_access_tag {};
+  struct size_known_tag {};
+  struct size_unknown_tag {};
+
+  // Primary allocation function - dispatches to appropriate implementation
+  static inline void allocate(const DstMatrixType& dst, const SrcMatrixType& src) {
+    allocate_impl(dst, src,
+                  // Dimension tag
+                  Is1DAtCompileTime ? vector_tag{} : matrix_tag{},
+                  // Size knowledge tag
+                  traits::DstSizeKnownAtCompileTime ? size_known_tag{} : size_unknown_tag{},
+                  // Access tag
+                  traits::DstDirectAccess ? direct_access_tag{} : indirect_access_tag{},
+                  // Transform type tag
+                  IsComplexTransform ? complex_tag{} : real_tag{});
   }
 
-  // TODO: inv calls, plan API calls
+  // Default implementation - does nothing
+  template <typename DimTag, typename SizeTag, typename AccessTag, typename TransformTag>
+  static inline void allocate_impl(DstMatrixType&, const SrcMatrixType&, DimTag, SizeTag, AccessTag, TransformTag) {
+    return;
+  }
+
+  // 1D, unknown size, direct access, complex transform
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, vector_tag, size_unknown_tag,
+                                   direct_access_tag, complex_tag) {
+    dst.resizeLike(src);
+  }
+
+  // 2D, unknown size, direct access, complex transform
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, matrix_tag, size_unknown_tag,
+                                   direct_access_tag, complex_tag) {
+    dst.resizeLike(src);
+  }
+
+  // 2D, unknown size, indirect access, complex transform
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, matrix_tag, size_unknown_tag,
+                                   indirect_access_tag, complex_tag) {
+    dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols()));
+  }
+
+  // 2D, unknown size, indirect access, real transform
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, matrix_tag, size_unknown_tag,
+                                   indirect_access_tag, real_tag) {
+    dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows() / 2 + 1, src.cols()));
+  }
+
+  // 1D, unknown size, indirect access, complex transform
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, vector_tag, size_unknown_tag,
+                                   indirect_access_tag, complex_tag) {
+    dst = std::move(typename traits::PlainComplexDstMatrixType(src.size()));
+  }
+
+  // 1D, unknown size, indirect access, real transform
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, vector_tag, size_unknown_tag,
+                                   indirect_access_tag, real_tag) {
+    dst = std::move(typename traits::PlainComplexDstMatrixType(src.size() / 2 + 1));
+  }
+};
+}  // namespace internal
+
+template </*typename Scalar_, */ int Options_ = FFTOptions::Default>
+class FFT {
+  typedef Options_ Options;
+
+ public:
+  FFT() = default;
 
  private:
   // TODO: Handle run-time options
   const int m_opts;
-
-
-  // TODO: Maybe handle this check statically too
-  bool m_fwd_allocated;
-  bool m_inv_allocated;
-
-  FwdMatrixType m_fwd;
-  InvMatrixType m_fwd;
 };
 }  // namespace Eigen
 
