@@ -13,6 +13,7 @@
 #include "../../Eigen/Core"
 #include "../../Eigen/src/Core/util/DisableStupidWarnings.h"
 #include <complex>
+#include <pocketfft_hdronly.h>  // TODO: move implementation to separate file
 
 namespace Eigen {
 
@@ -45,6 +46,7 @@ struct fft_mat_traits : traits<MatrixBase<Derived>> {
   typedef MatrixBase<Derived> MatrixType;
   typedef typename MatrixType::Scalar Scalar;
   typedef typename MatrixType::RealScalar RealScalar;
+  typedef std::complex<RealScalar> ComplexScalar;
 
   // TODO: remove unnecessary
   enum : int {
@@ -61,7 +63,7 @@ struct fft_mat_traits : traits<MatrixBase<Derived>> {
                  AutoAlign | (Flags & RowMajorBit ? RowMajor : ColMajor), MaxRowsAtCompileTime, MaxColsAtCompileTime>
       PlainRealMatrixType;
 
-  typedef Matrix<std::complex<RealScalar>, RowsAtCompileTime, ColsAtCompileTime,
+  typedef Matrix<ComplexScalar, RowsAtCompileTime, ColsAtCompileTime,
                  AutoAlign | (Flags & RowMajorBit ? RowMajor : ColMajor), MaxRowsAtCompileTime, MaxColsAtCompileTime>
       PlainComplexMatrixType;
 
@@ -82,6 +84,9 @@ struct fft_traits {
   typedef fft_mat_traits<SrcMatrixType> src_traits;
   typedef fft_mat_traits<DstMatrixType> dst_traits;
 
+  // TODO: some checks for scalar mismatches
+  typedef typename dst_traits::RealScalar RealScalar;
+  typedef typename dst_traits::ComplexScalar ComplexScalar;
   typedef typename dst_traits::PlainRealMatrixType PlainRealDstMatrixType;
   typedef typename dst_traits::PlainComplexMatrixType PlainComplexDstMatrixType;
 
@@ -104,10 +109,12 @@ struct fft_traits {
 // TODO: use Options_ to override specializations below
 // TODO: use const references where possible
 template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, int Direction_>
-struct FFT_impl {
+struct FFT_impl_base {
   typedef SrcMatrixType_ SrcMatrixType;
   typedef DstMatrixType_ DstMatrixType;
   typedef fft_traits<SrcMatrixType, DstMatrixType, Direction_> traits;
+  typedef typename traits::RealScalar RealScalar;
+  typedef typename traits::ComplexScalar ComplexScalar;
 
   static constexpr bool IsForwardTransform = traits::IsForwardTransform;
   static constexpr bool IsComplexTransform = traits::IsComplexTransform;
@@ -140,7 +147,6 @@ struct FFT_impl {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols()));
   }
 
-
   // Real Forward Transform cases
   // Direct access cases
   // 1D, Fwd
@@ -157,38 +163,66 @@ struct FFT_impl {
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst.resize(src.rows(), src.cols() / 2 + 1);
   }
-  
+
   // Indirect access cases
   // 1D, Fwd
   template <typename T = void,
-  std::enable_if_t<IsForwardTransform && !traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform,
-  int> = 5>
+            std::enable_if_t<IsForwardTransform && !traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform,
+                             int> = 5>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.size() / 2 + 1));
   }
   // 2D, Fwd
   template <typename T = void,
-  std::enable_if_t<
-  IsForwardTransform && !traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform, int> = 6>
+            std::enable_if_t<
+                IsForwardTransform && !traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform, int> = 6>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols() / 2 + 1));
   }
 
   // Real Inverse Transform cases
   // 1D, 2D, Direct, Indirect, Fwd, Inv
-  template <typename T = void,
-  std::enable_if_t<!IsForwardTransform && !IsComplexTransform,
-                   int> = 7>
+  template <typename T = void, std::enable_if_t<!IsForwardTransform && !IsComplexTransform, int> = 7>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     // Do Nothing
   }
-  
 
   // TODO: Plan API for FFTW
-
-  template <typename T = void>
-  static inline void fwd(DstMatrixType& dst, const SrcMatrixType& src)
 };
+
+// TODO: move this to seperate header and allow for different backends. Only here for testing
+template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, int Direction_>
+struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direction_> {
+  using namespace pocketfft;
+  using namespace pocketfft::detail;
+
+  // Complex Forward/Inverse Transform cases
+  // 1D
+  template <typename T = void, std::enable_if_t<IsComplexTransform && Is1DAtCompileTime, int> = 0>
+  static inline void run(DstMatrixType& dst, const SrcMatrixType& src) {
+    const shape_t shape = static_cast<shape_t>({src.size()});
+    const shape_t axes = {0};
+    const stride_t stride_in = static_cast<stride_t>({src.innerStride()});
+    const stride_t stride_out = static_cast<stride_t>({dst.innerStride()});
+    const ComplexScalar* src_p = static_cast<ComplexScalar*>(src.data());
+    const ComplexScalar* dst_p = static_cast<ComplexScalar*>(dst.data());
+    c2c(shape, stride_in, stride_out, axes, IsForwardTransform, src, dst,
+        1);  // TODO: 1 is nr of threads, allow in opts
+  }
+  // 2D
+  template <typename T = void, std::enable_if_t<IsComplexTransform && Is1DAtCompileTime, int> = 0>
+  static inline void run(DstMatrixType& dst, const SrcMatrixType& src) {
+    const shape_t shape = static_cast<shape_t>({src.rows(), src.cols()});
+    const shape_t axes = {0, 1};
+    const stride_t stride_in = static_cast<stride_t>({src.outerStride(), src.innerStride()});
+    const stride_t stride_out = static_cast<stride_t>({dst.outerStride(), dst.innerStride()});
+    const ComplexScalar* src_p = static_cast<ComplexScalar*>(src.data());
+    const ComplexScalar* dst_p = static_cast<ComplexScalar*>(dst.data());
+    c2c(shape, stride_in, stride_out, axes, IsForwardTransform, src, dst,
+        1);  // TODO: 1 is nr of threads, allow in opts
+  }
+}
+
 }  // namespace internal
 
 template </*typename Scalar_, */ int Options_ = FFTOptions::Default>
