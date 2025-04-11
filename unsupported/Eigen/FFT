@@ -101,11 +101,12 @@ struct FFT_impl_base {
   // TODO: static assert for whether Src is also a vector?
   // TODO: See if halfspectrum specialization works for rowmajor (it definitely won't rn)
   // TODO: Handle src size in real inv transforms?
+  // TODO: Comment on why I do sizeof in SFINAE
 
   // Complex Transform cases
   // Direct access cases
   // 1D, 2D, Fwd, Inv
-  template <typename T = int, std::enable_if_t<traits::DstDirectAccess && IsComplexTransform, T> = 0>
+  template <typename T = void, std::enable_if_t<traits::DstDirectAccess && IsComplexTransform && sizeof(T), int> = 0>
   static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst.resizeLike(src);
   }
@@ -113,14 +114,14 @@ struct FFT_impl_base {
   // TODO: p sure that std::move is not smart here, maybe I can just use resizeLike
   // Complex Transform && Indirect access cases
   // 1D, Fwd, Inv
-  template <typename T = int,
-            std::enable_if_t<!traits::DstDirectAccess && Is1DAtCompileTime && IsComplexTransform, T> = 1>
+  template <typename T = void,
+            std::enable_if_t<!traits::DstDirectAccess && Is1DAtCompileTime && IsComplexTransform && sizeof(T), int> = 1>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.size()));
   }
   // 2D, Fwd, Inv
-  template <typename T = int,
-            std::enable_if_t<!traits::DstDirectAccess && !Is1DAtCompileTime && IsComplexTransform, T> = 2>
+  template <typename T = void,
+            std::enable_if_t<!traits::DstDirectAccess && !Is1DAtCompileTime && IsComplexTransform && sizeof(T), int> = 2>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols()));
   }
@@ -128,39 +129,39 @@ struct FFT_impl_base {
   // Real Forward Transform cases
   // Direct access cases
   // 1D, Fwd
-  template <typename T = int,
-            std::enable_if_t<IsForwardTransform && traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform,
-                             T> = 3>
+  template <typename T = void,
+            std::enable_if_t<IsForwardTransform && traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform && sizeof(T),
+                             int> = 3>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst.resize(src.size() / 2 + 1);
   }
   // 2D, Fwd
-  template <typename T = int,
-            std::enable_if_t<IsForwardTransform && traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform,
-                             T> = 4>
+  template <typename T = void,
+            std::enable_if_t<IsForwardTransform && traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform && sizeof(T),
+                             int> = 4>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst.resize(src.rows(), src.cols() / 2 + 1);
   }
 
   // Indirect access cases
   // 1D, Fwd
-  template <typename T = int,
-            std::enable_if_t<IsForwardTransform && !traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform,
-                             T> = 5>
+  template <typename T = void,
+            std::enable_if_t<IsForwardTransform && !traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform && sizeof(T),
+                             int> = 5>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.size() / 2 + 1));
   }
   // 2D, Fwd
-  template <typename T = int,
+  template <typename T = void,
             std::enable_if_t<
-                IsForwardTransform && !traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform, T> = 6>
+                IsForwardTransform && !traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform && sizeof(T), int> = 6>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols() / 2 + 1));
   }
 
   // Real Inverse Transform cases
   // 1D, 2D, Direct, Indirect, Fwd, Inv
-  template <typename T = int, std::enable_if_t<!IsForwardTransform && !IsComplexTransform, T> = 7>
+  template <typename T = void, std::enable_if_t<!IsForwardTransform && !IsComplexTransform && sizeof(T), int> = 7>
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     // Do Nothing
   }
