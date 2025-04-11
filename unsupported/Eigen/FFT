@@ -12,6 +12,7 @@
 
 #include "../../Eigen/Core"
 #include "../../Eigen/src/Core/util/DisableStupidWarnings.h"
+#include <complex>
 
 namespace Eigen {
 
@@ -102,7 +103,7 @@ struct fft_traits {
 
 // TODO: use Options_ to override specializations below
 // TODO: use const references where possible
-template <typename SrcMatrixType_, typename DstMatrixType_, int Options_, int Direction_>
+template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, int Direction_>
 struct FFT_impl {
   typedef SrcMatrixType_ SrcMatrixType;
   typedef DstMatrixType_ DstMatrixType;
@@ -116,70 +117,77 @@ struct FFT_impl {
   // TODO: See if halfspectrum specialization works for rowmajor (it definitely won't rn)
   // TODO: Handle src size in real inv transforms?
 
-  // Default implementation
-  template <typename T = void>
-  static inline void allocate_impl(DstMatrixType&, SrcMatrixType&, ...) {
-    // Do nothing (default case)
-  }
-
-  // Direct access with complex transform (covers both 1D and 2D cases and Fwd/Inv)
-  template <typename T = void>
-  static inline void allocate_impl(DstMatrixType& dst, SrcMatrixType& src,
-                                   std::enable_if_t<traits::DstDirectAccess && IsComplexTransform, T>* = nullptr) {
+  // Complex Transform cases
+  // Direct access cases
+  // 1D, 2D, Fwd, Inv
+  template <typename T = void, std::enable_if_t<traits::DstDirectAccess && IsComplexTransform, int> = 0>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst.resizeLike(src);
   }
 
-  // 2D, indirect access, complex transform (covers both Fwd and Inv cases)
-  template <typename T = void>
-  static inline void allocate_impl(
-      DstMatrixType& dst, const SrcMatrixType& src,
-      typename std::enable_if_t<!traits::DstDirectAccess && !Is1DAtCompileTime && IsComplexTransform, T>* = nullptr) {
+  // TODO: p sure that std::move is not smart here, maybe I can just use resizeLike
+  // Complex Transform && Indirect access cases
+  // 1D, Fwd, Inv
+  template <typename T = void,
+            std::enable_if_t<!traits::DstDirectAccess && Is1DAtCompileTime && IsComplexTransform, int> = 1>
+  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+    dst = std::move(typename traits::PlainComplexDstMatrixType(src.size()));
+  }
+  // 2D, Fwd, Inv
+  template <typename T = void,
+            std::enable_if_t<!traits::DstDirectAccess && !Is1DAtCompileTime && IsComplexTransform, int> = 2>
+  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols()));
   }
 
-  // 2D, direct access, real forward transform
-  template <typename T = void>
-  static inline void allocate_impl(
-      DstMatrixType& dst, const SrcMatrixType& src,
-      typename std::enable_if_t<
-          IsForwardTransform && traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform, T>* = nullptr) {
+
+  // Real Forward Transform cases
+  // Direct access cases
+  // 1D, Fwd
+  template <typename T = void,
+            std::enable_if_t<IsForwardTransform && traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform,
+                             int> = 3>
+  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+    dst.resize(src.size() / 2 + 1);
+  }
+  // 2D, Fwd
+  template <typename T = void,
+            std::enable_if_t<IsForwardTransform && traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform,
+                             int> = 4>
+  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst.resize(src.rows(), src.cols() / 2 + 1);
   }
-
-  // 2D, indirect access, real forward transform
-  template <typename T = void>
-  static inline void allocate_impl(
-      DstMatrixType& dst, const SrcMatrixType& src,
-      typename std::enable_if_t<
-          IsForwardTransform && !traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform, T>* = nullptr) {
+  
+  // Indirect access cases
+  // 1D, Fwd
+  template <typename T = void,
+  std::enable_if_t<IsForwardTransform && !traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform,
+  int> = 5>
+  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+    dst = std::move(typename traits::PlainComplexDstMatrixType(src.size() / 2 + 1));
+  }
+  // 2D, Fwd
+  template <typename T = void,
+  std::enable_if_t<
+  IsForwardTransform && !traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform, int> = 6>
+  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols() / 2 + 1));
   }
 
-  // 1D, indirect access, complex transform  (covers both Fwd and Inv cases)
-  template <typename T = void>
-  static inline void allocate_impl(
-      DstMatrixType& dst, const SrcMatrixType& src,
-      typename std::enable_if_t<!traits::DstDirectAccess && Is1DAtCompileTime && IsComplexTransform, T>* = nullptr) {
-    dst = std::move(typename traits::PlainComplexDstMatrixType(src.size()));
+  // Real Inverse Transform cases
+  // 1D, 2D, Direct, Indirect, Fwd, Inv
+  template <typename T = void,
+  std::enable_if_t<!IsForwardTransform && !IsComplexTransform,
+                   int> = 7>
+  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+    // Do Nothing
   }
+  
 
-  // 1D, direct access, real forward transform
-  template <typename T = void>
-  static inline void allocate_impl(
-      DstMatrixType& dst, const SrcMatrixType& src,
-      typename std::enable_if_t<
-          IsForwardTransform && traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform, T>* = nullptr) {
-    dst.resize(src.size() / 2 + 1);
-  }
+  // TODO: Plan API for FFTW
 
-  // 1D, indirect access, real forward transform
   template <typename T = void>
-  static inline void allocate_impl(
-      DstMatrixType& dst, const SrcMatrixType& src,
-      typename std::enable_if_t<
-          IsForwardTransform && !traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform, T>* = nullptr) {
-    dst = std::move(typename traits::PlainComplexDstMatrixType(src.size() / 2 + 1));
-  }
+  static inline void fwd(DstMatrixType& dst, const SrcMatrixType& src)
 };
 }  // namespace internal
 
@@ -189,6 +197,16 @@ class FFT {
 
  public:
   FFT() = default;
+
+  inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src) {
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, FFTDirection::Forward>::allocate(dst, src);
+  }
+
+  inline void allocateInv(DstMatrixType& dst, SrcMatrixType& src) {
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, FFTDirection::Inverse>::allocate(dst, src);
+  }
+
+  inline fwd(DstMatrixType& dst, SrcMatrixType& src) {}
 
  private:
   // TODO: Handle run-time options
