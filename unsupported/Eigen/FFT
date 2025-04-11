@@ -116,13 +116,13 @@ struct FFT_impl_base {
   // 1D, Fwd, Inv
   template <typename T = void,
             std::enable_if_t<!traits::DstDirectAccess && Is1DAtCompileTime && IsComplexTransform && sizeof(T), int> = 1>
-  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.size()));
   }
   // 2D, Fwd, Inv
   template <typename T = void,
             std::enable_if_t<!traits::DstDirectAccess && !Is1DAtCompileTime && IsComplexTransform && sizeof(T), int> = 2>
-  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols()));
   }
 
@@ -132,14 +132,14 @@ struct FFT_impl_base {
   template <typename T = void,
             std::enable_if_t<IsForwardTransform && traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform && sizeof(T),
                              int> = 3>
-  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst.resize(src.size() / 2 + 1);
   }
   // 2D, Fwd
   template <typename T = void,
             std::enable_if_t<IsForwardTransform && traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform && sizeof(T),
                              int> = 4>
-  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst.resize(src.rows(), src.cols() / 2 + 1);
   }
 
@@ -148,21 +148,21 @@ struct FFT_impl_base {
   template <typename T = void,
             std::enable_if_t<IsForwardTransform && !traits::DstDirectAccess && Is1DAtCompileTime && !IsComplexTransform && sizeof(T),
                              int> = 5>
-  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.size() / 2 + 1));
   }
   // 2D, Fwd
   template <typename T = void,
             std::enable_if_t<
                 IsForwardTransform && !traits::DstDirectAccess && !Is1DAtCompileTime && !IsComplexTransform && sizeof(T), int> = 6>
-  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols() / 2 + 1));
   }
 
   // Real Inverse Transform cases
   // 1D, 2D, Direct, Indirect, Fwd, Inv
   template <typename T = void, std::enable_if_t<!IsForwardTransform && !IsComplexTransform && sizeof(T), int> = 7>
-  static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) {
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     // Do Nothing
   }
 
@@ -181,13 +181,14 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
 
   using Base::IsComplexTransform;
   using Base::Is1DAtCompileTime;
+  using Base::allocate;
 
   static constexpr bool IsForwardTransform = Direction_;
 
   // Complex Forward/Inverse Transform cases
   // 1D
-  template <typename T = void, std::enable_if_t<IsComplexTransform && Is1DAtCompileTime, int> = 0>
-  static inline void run(DstMatrixType& dst, const SrcMatrixType& src) {
+  template <typename T = void, std::enable_if_t<IsComplexTransform && Is1DAtCompileTime && sizeof(T), int> = 0>
+  static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
     const shape_t shape = static_cast<shape_t>(src.size());
     const shape_t axes = {0};
     const stride_t stride_in = {src.innerStride()};
@@ -198,8 +199,8 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
         1);  // TODO: 1 is nr of threads, allow in opts
   }
   // 2D
-  template <typename T = void, std::enable_if_t<IsComplexTransform && !Is1DAtCompileTime, int> = 0>
-  static inline void run(DstMatrixType& dst, const SrcMatrixType& src) {
+  template <typename T = void, std::enable_if_t<IsComplexTransform && !Is1DAtCompileTime && sizeof(T), int> = 0>
+  static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
     const shape_t shape = {src.rows(), src.cols()};
     const shape_t axes = {0, 1};
     const stride_t stride_in = {src.outerStride(), src.innerStride()};
