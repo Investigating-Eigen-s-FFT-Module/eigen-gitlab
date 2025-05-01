@@ -98,81 +98,42 @@ struct FFT_impl_base {
 
   static constexpr bool IsComplexTransform = traits::IsComplexTransform;
   static constexpr bool Is1DAtCompileTime = traits::DstIsVectorAtCompileTime;
+  static constexpr bool SrcSizeKnownAtCompileTime = traits::SrcSizeKnownAtCompileTime;
+  static constexpr bool DstSizeKnownAtCompileTime = traits::DstSizeKnownAtCompileTime;
   static constexpr bool IsForwardTransform = Direction_;
 
   // TODO: static assert for whether Src is also a vector?
   // TODO: See if halfspectrum specialization works for rowmajor (it definitely won't rn)
   // TODO: Handle src size in real inv transforms?
   // TODO: Comment on why I do sizeof in SFINAE
+  // TODO: Special cases for static sizes?
 
-  // Complex Transform cases
-  // Direct access cases
-  // 1D, 2D, Fwd, Inv
+  // TODO: For now, real transforms just get spectrum reflected immediately. Mabe handle alloc on real transforms later
+  // Real/Complex Transform cases
+  // Static sized Dst
+  // Static sized Src
+  template <typename SFINAE_T = int, std::enable_if_t</*IsComplexTransform &&*/ SrcSizeKnownAtCompileTime &&
+                                                          DstSizeKnownAtCompileTime && sizeof(SFINAE_T),
+                                                      int> = 0>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
+    // Todo: Maybe allow dst to be bigger than source
+    EIGEN_STATIC_ASSERT_SAME_MATRIX_SIZE(DstMatrixType, SrcMatrixType);
+  }
+  // Dynamic sized Src
+  template <typename SFINAE_T = int, std::enable_if_t</*IsComplexTransform &&*/ !SrcSizeKnownAtCompileTime &&
+                                                          DstSizeKnownAtCompileTime && sizeof(SFINAE_T),
+                                                      int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
+    // Todo: Maybe allow dst to be bigger than source
+    eigen_assert((dst.size() == src.size()) && "Invalid dimensions");
+  }
+
+  // Dynamic sized Dst
   template <typename SFINAE_T = int,
-            std::enable_if_t<traits::DstDirectAccess && IsComplexTransform && sizeof(SFINAE_T), int> = 0>
+            std::enable_if_t</*IsComplexTransform &&*/ !DstSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 2>
   static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst.resizeLike(src);
   }
-
-  // TODO: p sure that std::move is not smart here, maybe I can just use resizeLike
-  // Complex Transform && Indirect access cases
-  // 1D, Fwd, Inv
-  template <typename SFINAE_T = int,
-            std::enable_if_t<!traits::DstDirectAccess && Is1DAtCompileTime && IsComplexTransform && sizeof(SFINAE_T),
-                             int> = 1>
-  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
-    dst = std::move(typename traits::PlainComplexDstMatrixType(src.size()));
-  }
-  // 2D, Fwd, Inv
-  template <typename SFINAE_T = int,
-            std::enable_if_t<!traits::DstDirectAccess && !Is1DAtCompileTime && IsComplexTransform && sizeof(SFINAE_T),
-                             int> = 2>
-  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
-    dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols()));
-  }
-
-  // Real Forward Transform cases
-  // Direct access cases
-  // 1D, Fwd
-  template <typename SFINAE_T = int, std::enable_if_t<IsForwardTransform && traits::DstDirectAccess &&
-                                                          Is1DAtCompileTime && !IsComplexTransform && sizeof(SFINAE_T),
-                                                      int> = 3>
-  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
-    dst.resize(src.size() / 2 + 1);
-  }
-  // 2D, Fwd
-  template <typename SFINAE_T = int, std::enable_if_t<IsForwardTransform && traits::DstDirectAccess &&
-                                                          !Is1DAtCompileTime && !IsComplexTransform && sizeof(SFINAE_T),
-                                                      int> = 4>
-  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
-    dst.resize(src.rows(), src.cols() / 2 + 1);
-  }
-
-  // Indirect access cases
-  // 1D, Fwd
-  template <typename SFINAE_T = int, std::enable_if_t<IsForwardTransform && !traits::DstDirectAccess &&
-                                                          Is1DAtCompileTime && !IsComplexTransform && sizeof(SFINAE_T),
-                                                      int> = 5>
-  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
-    dst = std::move(typename traits::PlainComplexDstMatrixType(src.size() / 2 + 1));
-  }
-  // 2D, Fwd
-  template <typename SFINAE_T = void,
-            std::enable_if_t<IsForwardTransform && !traits::DstDirectAccess && !Is1DAtCompileTime &&
-                                 !IsComplexTransform && sizeof(SFINAE_T),
-                             int> = 6>
-  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
-    dst = std::move(typename traits::PlainComplexDstMatrixType(src.rows(), src.cols() / 2 + 1));
-  }
-
-  // Real Inverse Transform cases
-  // 1D, 2D, Direct, Indirect, Fwd, Inv
-  template <typename SFINAE_T = int,
-            std::enable_if_t<!IsForwardTransform && !IsComplexTransform && sizeof(SFINAE_T), int> = 7>
-  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
-    // Do Nothing
-  }
-
   // TODO: Plan API for FFTW
 };
 
@@ -188,8 +149,10 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
   using typename Base::SrcMatrixType;
 
   using Base::allocate;
+  using Base::DstSizeKnownAtCompileTime;
   using Base::Is1DAtCompileTime;
   using Base::IsComplexTransform;
+  using Base::SrcSizeKnownAtCompileTime;
 
   static constexpr bool IsForwardTransform = Direction_;
 
@@ -198,31 +161,68 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
   template <typename SFINAE_T = int,
             std::enable_if_t<IsComplexTransform && Is1DAtCompileTime && sizeof(SFINAE_T), int> = 0>
   static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
-    const shape_t shape = {src.size()};
+    const shape_t shape = {static_cast<size_t>(src.size())};
     const shape_t axes = {0};
     const stride_t stride_in = {src.innerStride() * sizeof(ComplexScalar)};
     const stride_t stride_out = {dst.innerStride() * sizeof(ComplexScalar)};
-    const ComplexScalar* src_p = static_cast<ComplexScalar*>(src.data());
+    const ComplexScalar* src_p = static_cast<const ComplexScalar*>(src.eval().data());
     ComplexScalar* dst_p = static_cast<ComplexScalar*>(dst.data());
     // TODO: make scaling fact opt-dependent
     RealScalar scaling_fact = static_cast<RealScalar>(1.0);
     c2c(shape, stride_in, stride_out, axes, IsForwardTransform, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
+
   // 2D
   template <typename SFINAE_T = int,
             std::enable_if_t<IsComplexTransform && !Is1DAtCompileTime && sizeof(SFINAE_T), int> = 1>
   static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
-    const shape_t shape = {src.rows(), src.cols()};
-    const shape_t axes = {0, 1};
-    const stride_t stride_in = {static_cast<ptrdiff_t>(src.innerStride() * sizeof(ComplexScalar)),
-                                static_cast<ptrdiff_t>(src.outerStride() * sizeof(ComplexScalar))};
-    const stride_t stride_out = {static_cast<ptrdiff_t>(dst.innerStride() * sizeof(ComplexScalar)),
-                                 static_cast<ptrdiff_t>(dst.outerStride() * sizeof(ComplexScalar))};
-    const ComplexScalar* src_p = static_cast<ComplexScalar*>(src.data());
+    const shape_t shape = {static_cast<size_t>(src.rows()), static_cast<size_t>(src.cols())};
+    const shape_t axes = {1, 0};
+    const stride_t stride_in = {static_cast<ptrdiff_t>(src.rowStride() * sizeof(ComplexScalar)),
+                                static_cast<ptrdiff_t>(src.colStride() * sizeof(ComplexScalar))};
+    const stride_t stride_out = {static_cast<ptrdiff_t>(dst.rowStride() * sizeof(ComplexScalar)),
+                                 static_cast<ptrdiff_t>(dst.colStride() * sizeof(ComplexScalar))};
+    const ComplexScalar* src_p = static_cast<const ComplexScalar*>(src.eval().data());
     ComplexScalar* dst_p = static_cast<ComplexScalar*>(dst.data());
     RealScalar scaling_fact = static_cast<RealScalar>(1.0);
     c2c(shape, stride_in, stride_out, axes, IsForwardTransform, src_p, dst_p, scaling_fact,
+        1);  // TODO: 1 is nr of threads, allow in opts
+  }
+
+  // Real Forward Transform cases
+  // 1D
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<!IsComplexTransform && IsForwardTransform && Is1DAtCompileTime && sizeof(SFINAE_T), int> = 2>
+  static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
+    const shape_t shape = {static_cast<size_t>(src.size())};
+    constexpr size_t axis = static_cast<size_t>(0);
+    const stride_t stride_in = {src.innerStride() * sizeof(RealScalar)};
+    const stride_t stride_out = {dst.innerStride() * sizeof(ComplexScalar)};
+    const RealScalar* src_p = static_cast<const RealScalar*>(src.eval().data());
+    ComplexScalar* dst_p = static_cast<ComplexScalar*>(dst.data());
+    // TODO: make scaling fact opt-dependent
+    RealScalar scaling_fact = static_cast<RealScalar>(1.0);
+    r2c(shape, stride_in, stride_out, axis, IsForwardTransform, src_p, dst_p, scaling_fact,
+        1);  // TODO: 1 is nr of threads, allow in opts
+  }
+
+  // 2D
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<!IsComplexTransform && IsForwardTransform && !Is1DAtCompileTime && sizeof(SFINAE_T), int> = 3>
+  static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
+    const shape_t shape = {static_cast<size_t>(src.rows()), static_cast<size_t>(src.cols())};
+    const shape_t axes = {1, 0};
+    const stride_t stride_in = {static_cast<ptrdiff_t>(src.rowStride() * sizeof(RealScalar)),
+                                static_cast<ptrdiff_t>(src.colStride() * sizeof(RealScalar))};
+    const stride_t stride_out = {static_cast<ptrdiff_t>(dst.rowStride() * sizeof(ComplexScalar)),
+                                 static_cast<ptrdiff_t>(dst.colStride() * sizeof(ComplexScalar))};
+    const RealScalar* src_p = static_cast<const RealScalar*>(src.eval().data());
+    ComplexScalar* dst_p = static_cast<ComplexScalar*>(dst.data());
+    RealScalar scaling_fact = static_cast<RealScalar>(1.0);
+    r2c(shape, stride_in, stride_out, axes, IsForwardTransform, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 };
@@ -270,6 +270,11 @@ class FFT {
   template <typename DstMatrixType, typename SrcMatrixType>
   inline void fwd(DstMatrixType& dst, SrcMatrixType& src) {
     internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::run(dst, src);
+  }
+
+  template <typename DstMatrixType, typename SrcMatrixType>
+  inline void inv(DstMatrixType& dst, SrcMatrixType& src) {
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::run(dst, src);
   }
 
  private:
