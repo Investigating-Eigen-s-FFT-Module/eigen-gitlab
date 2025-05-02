@@ -18,27 +18,27 @@
 namespace Eigen {
 
 namespace FFTOption {
-  enum : int {
-    Scaled = 0x0,
-    Unscaled = 0x1,
-    Real = 0x2,
-    Complex = 0x4,
-    InPlace = 0x8, // may be specific to FFTW
-    HalfSpectrum = 0x10,
-    FullSpectrum = 0x11,
-    OutPlace = 0x12,
-    Threaded = 0x13,  // TODO: may need more specific flags (threading implementation, nr threads ...)
-    Serial = 0x14
-    // TODO: Move these to the implementation-specific headers. Only here for now for reference.
-    // FFTW API flags
-    // PlanMeasure
-    // PlanExhaustive (or patient or whatev it's called)
-    // PlanWisdom // TODO: bother with this?
-    // PlanEstimate
-    // PocketFFT API flags
-    // CacheTwiddles
-  };
-} // FFTOption
+enum : int {
+  Scaled = 0x0,
+  Unscaled = 0x1,
+  InPlace = 0x2,  // may be specific to FFTW
+  OutPlace = 0x4,
+  HalfSpectrum = 0x8,
+  FullSpectrum = 0x10,
+  Threaded = 0x20,  // TODO: may need more specific flags (threading implementation, nr threads ...)
+  Serial = 0x40,
+  Real = 0x80,
+  Complex = 0x100,
+  // TODO: Move these to the implementation-specific headers. Only here for now for reference.
+  // FFTW API flags
+  // PlanMeasure
+  // PlanExhaustive (or patient or whatev it's called)
+  // PlanWisdom // TODO: bother with this?
+  // PlanEstimate
+  // PocketFFT API flags
+  // CacheTwiddles
+};
+}  // namespace FFTOption
 
 namespace internal {
 using namespace FFTOption;
@@ -106,6 +106,15 @@ struct fft_traits {
   static constexpr bool SrcDirectAccess = src_traits::DirectAccess;
   static constexpr bool DstDirectAccess = dst_traits::DirectAccess;
 
+  static constexpr Index FFTRowsAtCompileTime = (src_traits::RowsAtCompileTime > dst_traits::RowsAtCompileTime)
+                                                    ? src_traits::RowsAtCompileTime
+                                                    : dst_traits::RowsAtCompileTime;
+  static constexpr Index FFTColsAtCompileTime = (src_traits::ColsAtCompileTime > dst_traits::ColsAtCompileTime)
+                                                    ? src_traits::ColsAtCompileTime
+                                                    : dst_traits::ColsAtCompileTime;
+  static constexpr Index FFTSizeAtCompileTime =
+      (FFTRowsAtCompileTime > 0 && FFTColsAtCompileTime > 0) ? FFTRowsAtCompileTime * FFTColsAtCompileTime : -1;
+
   static constexpr bool IsForwardTransform = Direction_;
   static constexpr bool IsComplexTransform =
       (IsForwardTransform && SrcIsComplex) || (!IsForwardTransform && DstIsComplex);
@@ -136,13 +145,76 @@ struct FFT_impl_base {
   // TODO: Comment on why I do sizeof in SFINAE
   // TODO: Special cases for static sizes?
 
-  // TODO: For now, real transforms just get spectrum reflected immediately. Mabe handle alloc on real transforms later
+  // TODO: See if noalias() helps performance (especially for small sizes, for large ones it should)
+  // Create the implicit right-half spectrum (conjugate-mirror of the left-half)
+  // Dynamic src and dst sizes
+  // 1D
+  template <typename SFINAE_T = int,
+            std::enable_if_t<IsForwardTransform && !IsComplexTransform && hasFlag(FullSpectrum) && Is1DAtCompileTime &&
+                                 !SrcSizeKnownAtCompileTime && !DstSizeKnownAtCompileTime && sizeof(SFINAE_T),
+                             int> = -4>
+  static inline void reflectSpectrum(DstMatrixType& dst) {
+    const Index size = dst.size();
+    dst.tail(size / 2 - 1).noalias() =
+        dst.segment(1, size / 2 - 1).reverse().conjugate();  // TODO: this might not leverage the expression
+                                                             // templates/lazy eval associated with the methods?
+  }
+
+  // 2D
+  template <typename SFINAE_T = int,
+            std::enable_if_t<IsForwardTransform && !IsComplexTransform && hasFlag(FullSpectrum) && !Is1DAtCompileTime &&
+                                 !SrcSizeKnownAtCompileTime && sizeof(SFINAE_T),
+                             int> = -3>
+  static inline void reflectSpectrum(DstMatrixType& dst) {
+    const Index rows = dst.rows();
+    dst.bottomRows(rows / 2 - 1).noalias() =
+        dst.middleRows(1, rows / 2 - 1).reverse().conjugate();  // TODO: does this fully leverage the expression
+                                                                // templates/lazy eval associated with the methods?
+  }
+
+  // Static src size or dst size
+  // 1D
+  template <typename SFINAE_T = int,
+            std::enable_if_t<IsForwardTransform && !IsComplexTransform && hasFlag(FullSpectrum) && Is1DAtCompileTime &&
+                                 (SrcSizeKnownAtCompileTime || DstSizeKnownAtCompileTime) && sizeof(SFINAE_T),
+                             int> = -2>
+  static inline void reflectSpectrum(DstMatrixType& dst) {
+    constexpr Index size = traits::FFTSizeAtCompileTime;
+    dst.template tail<size / 2 - 1>().noalias() = dst.template segment<size / 2 - 1>().reverse().conjugate();
+  }
+
+  // 2D - TODO: As it stands, only the rows need to be known at compiletime for this specialization
+  //            But I'm still unsure whether that'll stay that way, since Eigen's ColMajor order
+  //            may cause performance issues with 2D c2r, requiring changes that put the output
+  //            into the first columns rather than rows. Change to appropriate specialization
+  //            from `SrcSizeKnownAtCompileTime` once it's clear.
+  template <typename SFINAE_T = int,
+            std::enable_if_t<IsForwardTransform && !IsComplexTransform && hasFlag(FullSpectrum) && !Is1DAtCompileTime &&
+                                 (SrcSizeKnownAtCompileTime || DstSizeKnownAtCompileTime) && sizeof(SFINAE_T),
+                             int> = -1>
+  static inline void reflectSpectrum(DstMatrixType& dst) {
+    constexpr Index rows = traits::FFTRowsAtCompileTime;
+    dst.template bottomRows<rows / 2 - 1>().noalias() =
+        dst.template middleRows<1, rows / 2 - 1>()
+            .reverse()
+            .conjugate();  // TODO: does this fully leverage the expression
+                           // templates/lazy eval associated with the methods?
+  }
+
+  // Else (no reflection needed)
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<(!IsForwardTransform || IsComplexTransform || hasFlag(HalfSpectrum)) && sizeof(SFINAE_T), int> = 0>
+  static inline void reflectSpectrum(DstMatrixType& dst) {
+    // Do nothing
+  }
+
   // Real/Complex Transform cases
   // Static sized Dst
   // Static sized Src
   template <typename SFINAE_T = int, std::enable_if_t</*IsComplexTransform &&*/ SrcSizeKnownAtCompileTime &&
                                                           DstSizeKnownAtCompileTime && sizeof(SFINAE_T),
-                                                      int> = 0>
+                                                      int> = 1>
   static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     // Todo: Maybe allow dst to be bigger than source
     EIGEN_STATIC_ASSERT_SAME_MATRIX_SIZE(DstMatrixType, SrcMatrixType);
@@ -150,7 +222,7 @@ struct FFT_impl_base {
   // Dynamic sized Src
   template <typename SFINAE_T = int, std::enable_if_t</*IsComplexTransform &&*/ !SrcSizeKnownAtCompileTime &&
                                                           DstSizeKnownAtCompileTime && sizeof(SFINAE_T),
-                                                      int> = 1>
+                                                      int> = 2>
   static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     // Todo: Maybe allow dst to be bigger than source
     eigen_assert((dst.size() == src.size()) && "Invalid dimensions");
@@ -158,7 +230,7 @@ struct FFT_impl_base {
 
   // Dynamic sized Dst
   template <typename SFINAE_T = int,
-            std::enable_if_t</*IsComplexTransform &&*/ !DstSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 2>
+            std::enable_if_t</*IsComplexTransform &&*/ !DstSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 3>
   static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
     dst.resizeLike(src);
   }
@@ -176,11 +248,12 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
   using typename Base::RealScalar;
   using typename Base::SrcMatrixType;
 
-  using Base::Options;
   using Base::allocate;
   using Base::DstSizeKnownAtCompileTime;
   using Base::Is1DAtCompileTime;
   using Base::IsComplexTransform;
+  using Base::Options;
+  using Base::reflectSpectrum;
   using Base::SrcSizeKnownAtCompileTime;
 
   static constexpr bool IsForwardTransform = Direction_;
@@ -258,11 +331,11 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
 
 }  // namespace internal
 
-namespace FFTDetail { // Detail namespace allows introducing other scopes such as
-  using namespace FFTOption; // this one without exposing it to the `Eigen` scope
+namespace FFTDetail {       // Detail namespace allows introducing other scopes such as
+using namespace FFTOption;  // this one without exposing it to the `Eigen` scope
 // TODO: maybe add Scalar template for backward comp.
 // TODO: figure out the most elegant solution to the fact that in C++14 I need to do `FFT<> fft;` ...
-template <int Options_ = Scaled | OutPlace | Serial>
+template <int Options_ = Scaled | OutPlace | Serial | FullSpectrum>
 class FFT {
   static constexpr int Options = Options_;
 
@@ -284,6 +357,8 @@ class FFT {
     //       which already efficiently checks if (re)allocation is needed.
     internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::allocate(dst, src);
     internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::run(dst, src);
+    // Will only compute symmetric conjugate if applicable based on template params
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::reflectSpectrum(dst);
   }
 
   template <typename DstMatrixType, typename SrcMatrixType>
@@ -298,9 +373,9 @@ class FFT {
   // TODO: Handle run-time options
   // const int m_opts;s
 };
-} // namespace FFTDetail
+}  // namespace FFTDetail
 
-using FFTDetail::FFT; // Bring to Eigen scope
+using FFTDetail::FFT;  // Bring to Eigen scope
 
 }  // namespace Eigen
 
