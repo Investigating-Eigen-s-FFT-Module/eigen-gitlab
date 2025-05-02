@@ -17,7 +17,32 @@
 
 namespace Eigen {
 
+namespace FFTOption {
+  enum : int {
+    Scaled = 0x0,
+    Unscaled = 0x1,
+    Real = 0x2,
+    Complex = 0x4,
+    InPlace = 0x8, // may be specific to FFTW
+    HalfSpectrum = 0x10,
+    FullSpectrum = 0x11,
+    OutPlace = 0x12,
+    Threaded = 0x13,  // TODO: may need more specific flags (threading implementation, nr threads ...)
+    Serial = 0x14
+    // TODO: Move these to the implementation-specific headers. Only here for now for reference.
+    // FFTW API flags
+    // PlanMeasure
+    // PlanExhaustive (or patient or whatev it's called)
+    // PlanWisdom // TODO: bother with this?
+    // PlanEstimate
+    // PocketFFT API flags
+    // CacheTwiddles
+  };
+} // FFTOption
+
 namespace internal {
+using namespace FFTOption;
+
 // TODO: Remove unnecessary bool template param for direction where applicable
 template <typename Derived>
 struct fft_mat_traits : traits<Derived> {
@@ -96,11 +121,14 @@ struct FFT_impl_base {
   typedef typename traits::RealScalar RealScalar;
   typedef typename traits::ComplexScalar ComplexScalar;
 
+  static constexpr int Options = Options_;
   static constexpr bool IsComplexTransform = traits::IsComplexTransform;
   static constexpr bool Is1DAtCompileTime = traits::DstIsVectorAtCompileTime;
   static constexpr bool SrcSizeKnownAtCompileTime = traits::SrcSizeKnownAtCompileTime;
   static constexpr bool DstSizeKnownAtCompileTime = traits::DstSizeKnownAtCompileTime;
   static constexpr bool IsForwardTransform = Direction_;
+
+  static inline constexpr bool hasFlag(int f) { return static_cast<bool>(f & Options); }
 
   // TODO: static assert for whether Src is also a vector?
   // TODO: See if halfspectrum specialization works for rowmajor (it definitely won't rn)
@@ -148,6 +176,7 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
   using typename Base::RealScalar;
   using typename Base::SrcMatrixType;
 
+  using Base::Options;
   using Base::allocate;
   using Base::DstSizeKnownAtCompileTime;
   using Base::Is1DAtCompileTime;
@@ -229,33 +258,15 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
 
 }  // namespace internal
 
+namespace FFTDetail { // Detail namespace allows introducing other scopes such as
+  using namespace FFTOption; // this one without exposing it to the `Eigen` scope
 // TODO: maybe add Scalar template for backward comp.
 // TODO: figure out the most elegant solution to the fact that in C++14 I need to do `FFT<> fft;` ...
-template <int Options_ = Dynamic>
+template <int Options_ = Scaled | OutPlace | Serial>
 class FFT {
   static constexpr int Options = Options_;
-  enum : int {
-    Scaled = 0x0,
-    Unscaled = 0x1,
-    Real = 0x2,
-    Complex = 0x4,
-    InPlace = 0x8,  // may be specific to FFTW
-    OutPlace = 0x10,
-    Threaded = 0x11,  // TODO: may need more specific flags (threading implementation, nr threads ...)
-    Serial = 0x12,
-    Default = Scaled | OutPlace | Serial
-    // TODO: Move these to the implementation-specific headers. Only here for now for reference.
-    // FFTW API flags
-    // PlanMeasure
-    // PlanExhaustive (or patient or whatev it's called)
-    // PlanWisdom // TODO: bother with this?
-    // PlanEstimate
-    // PocketFFT API flags
-    // CacheTwiddles
-  };
 
  public:
-  // TODO: handle alloc within fwd/inv calls as well (use bool/compile-time specializations)
   template <typename DstMatrixType, typename SrcMatrixType>
   inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src) {
     internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::allocate(dst, src);
@@ -266,14 +277,18 @@ class FFT {
     internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::allocate(dst, src);
   }
 
-  // TODO: How to handle auto alloc?
   template <typename DstMatrixType, typename SrcMatrixType>
   inline void fwd(DstMatrixType& dst, SrcMatrixType& src) {
+    // Note: keeping track of allocation is likely unnecessary;
+    //       The call below should be at most an inlined resize() call
+    //       which already efficiently checks if (re)allocation is needed.
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::allocate(dst, src);
     internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::run(dst, src);
   }
 
   template <typename DstMatrixType, typename SrcMatrixType>
   inline void inv(DstMatrixType& dst, SrcMatrixType& src) {
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::allocate(dst, src);
     internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::run(dst, src);
   }
 
@@ -283,6 +298,10 @@ class FFT {
   // TODO: Handle run-time options
   // const int m_opts;s
 };
+} // namespace FFTDetail
+
+using FFTDetail::FFT; // Bring to Eigen scope
+
 }  // namespace Eigen
 
 #include "../../Eigen/src/Core/util/ReenableStupidWarnings.h"
