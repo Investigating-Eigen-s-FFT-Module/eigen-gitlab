@@ -202,9 +202,9 @@ struct FFT_impl_base {
   }
 
   // Else (no reflection needed)
-  template <
-      typename SFINAE_T = int,
-      std::enable_if_t<(!IsForwardTransform || IsComplexTransform || hasFlag(HalfSpectrum)) && sizeof(SFINAE_T), int> = 0>
+  template <typename SFINAE_T = int,
+            std::enable_if_t<(!IsForwardTransform || IsComplexTransform || hasFlag(HalfSpectrum)) && sizeof(SFINAE_T),
+                             int> = 0>
   static inline void reflectSpectrum(DstMatrixType& dst) {
     // Do nothing
   }
@@ -310,7 +310,8 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 
-  // 2D
+  // 2D - TODO: if C2R, we technically don't need the full src matrix, so if hasFlag(FullSpectrum), there's no need to
+  // call eval() on the whole src... Maybe worth looking into
   template <
       typename SFINAE_T = int,
       std::enable_if_t<!IsComplexTransform && IsForwardTransform && !Is1DAtCompileTime && sizeof(SFINAE_T), int> = 3>
