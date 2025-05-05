@@ -116,8 +116,7 @@ struct fft_traits {
       (FFTRowsAtCompileTime > 0 && FFTColsAtCompileTime > 0) ? FFTRowsAtCompileTime * FFTColsAtCompileTime : -1;
 
   static constexpr bool IsForwardTransform = Direction_;
-  static constexpr bool IsComplexTransform =
-      (IsForwardTransform && SrcIsComplex) || (!IsForwardTransform && DstIsComplex);
+  static constexpr bool IsComplexTransform = SrcIsComplex && DstIsComplex;
 };
 
 // TODO: use Options_ to override specializations below
@@ -138,12 +137,21 @@ struct FFT_impl_base {
   static constexpr bool IsForwardTransform = Direction_;
 
   static inline constexpr bool hasFlag(int f) { return static_cast<bool>(f & Options); }
+  
+  // Ensure FFT(IFFT(x)) == x if flag 'Scaled' is set. Applied on inverse transform.
+  template <typename SFINAE_T = int,
+  std::enable_if_t<!IsForwardTransform && !hasFlag(Unscaled) && sizeof(SFINAE_T),
+                   int> = -6>
+  static inline void scale(DstMatrixType& dst) {
+    dst *= 1. / dst.size();
+  }
 
-  // TODO: static assert for whether Src is also a vector?
-  // TODO: See if halfspectrum specialization works for rowmajor (it definitely won't rn)
-  // TODO: Handle src size in real inv transforms?
-  // TODO: Comment on why I do sizeof in SFINAE
-  // TODO: Special cases for static sizes?
+  template <typename SFINAE_T = int,
+  std::enable_if_t<(IsForwardTransform || (!IsForwardTransform && hasFlag(Unscaled))) && sizeof(SFINAE_T),
+                   int> = -5>
+  static inline void scale(DstMatrixType& /*dst*/) {
+    // Do nothing
+  }
 
   // TODO: See if noalias() helps performance (especially for small sizes, for large ones it should)
   // Create the implicit right-half spectrum (conjugate-mirror of the left-half)
@@ -205,9 +213,16 @@ struct FFT_impl_base {
   template <typename SFINAE_T = int,
             std::enable_if_t<(!IsForwardTransform || IsComplexTransform || hasFlag(HalfSpectrum)) && sizeof(SFINAE_T),
                              int> = 0>
-  static inline void reflectSpectrum(DstMatrixType& dst) {
+  static inline void reflectSpectrum(DstMatrixType& /*dst*/) {
     // Do nothing
   }
+
+  // TODO: static assert for whether Src is also a vector?
+  // TODO: See if halfspectrum specialization works for rowmajor (it definitely won't rn)
+  // TODO: Handle src size in real inv transforms?
+  // TODO: Comment on why I do sizeof in SFINAE
+  // TODO: Special cases for static sizes?
+
 
   // Real/Complex Transform cases
   // Static sized Dst
@@ -248,29 +263,36 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
   using typename Base::RealScalar;
   using typename Base::SrcMatrixType;
 
+  // using Base::scale; FFTPocket functions have their own scaling factor argument
+  using Base::reflectSpectrum;
   using Base::allocate;
   using Base::DstSizeKnownAtCompileTime;
   using Base::Is1DAtCompileTime;
   using Base::IsComplexTransform;
   using Base::Options;
-  using Base::reflectSpectrum;
   using Base::SrcSizeKnownAtCompileTime;
 
   static constexpr bool IsForwardTransform = Direction_;
+
+  template <typename SFINAE_T = int,
+  std::enable_if_t<sizeof(SFINAE_T), int> = -1>
+  static inline void scale(DstMatrixType& dst) {
+    // Always do nothing: FFTPocket functions have their own scaling factor argument
+  }
 
   // Complex Forward/Inverse Transform cases
   // 1D
   template <typename SFINAE_T = int,
             std::enable_if_t<IsComplexTransform && Is1DAtCompileTime && sizeof(SFINAE_T), int> = 0>
   static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
-    const shape_t shape = {static_cast<size_t>(src.size())};
+    const Index size = src.size();
+    const shape_t shape = {static_cast<size_t>(size)};
     const shape_t axes = {0};
     const stride_t stride_in = {src.innerStride() * sizeof(ComplexScalar)};
     const stride_t stride_out = {dst.innerStride() * sizeof(ComplexScalar)};
     const ComplexScalar* src_p = static_cast<const ComplexScalar*>(src.eval().data());
     ComplexScalar* dst_p = static_cast<ComplexScalar*>(dst.data());
-    // TODO: make scaling fact opt-dependent
-    RealScalar scaling_fact = static_cast<RealScalar>(1.0);
+    const RealScalar scaling_fact = IsForwardTransform ? static_cast<RealScalar>(1.0) : 1.0 / static_cast<RealScalar>(size);
     c2c(shape, stride_in, stride_out, axes, IsForwardTransform, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
@@ -279,7 +301,9 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
   template <typename SFINAE_T = int,
             std::enable_if_t<IsComplexTransform && !Is1DAtCompileTime && sizeof(SFINAE_T), int> = 1>
   static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
-    const shape_t shape = {static_cast<size_t>(src.rows()), static_cast<size_t>(src.cols())};
+    const Index rows = src.rows();
+    const Index cols = src.cols();
+    const shape_t shape = {static_cast<size_t>(rows), static_cast<size_t>(cols)};
     const shape_t axes = {1, 0};
     const stride_t stride_in = {static_cast<ptrdiff_t>(src.rowStride() * sizeof(ComplexScalar)),
                                 static_cast<ptrdiff_t>(src.colStride() * sizeof(ComplexScalar))};
@@ -287,7 +311,7 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
                                  static_cast<ptrdiff_t>(dst.colStride() * sizeof(ComplexScalar))};
     const ComplexScalar* src_p = static_cast<const ComplexScalar*>(src.eval().data());
     ComplexScalar* dst_p = static_cast<ComplexScalar*>(dst.data());
-    RealScalar scaling_fact = static_cast<RealScalar>(1.0);
+    const RealScalar scaling_fact = IsForwardTransform ? static_cast<RealScalar>(1.0) : 1.0 / static_cast<RealScalar>(rows * cols);
     c2c(shape, stride_in, stride_out, axes, IsForwardTransform, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
@@ -310,8 +334,7 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 
-  // 2D - TODO: if C2R, we technically don't need the full src matrix, so if hasFlag(FullSpectrum), there's no need to
-  // call eval() on the whole src... Maybe worth looking into
+  // 2D
   template <
       typename SFINAE_T = int,
       std::enable_if_t<!IsComplexTransform && IsForwardTransform && !Is1DAtCompileTime && sizeof(SFINAE_T), int> = 3>
@@ -326,6 +349,46 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
     ComplexScalar* dst_p = static_cast<ComplexScalar*>(dst.data());
     RealScalar scaling_fact = static_cast<RealScalar>(1.0);
     r2c(shape, stride_in, stride_out, axes, IsForwardTransform, src_p, dst_p, scaling_fact,
+        1);  // TODO: 1 is nr of threads, allow in opts
+  }
+
+  // Real Inverse Transform cases
+  // 1D
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<!IsComplexTransform && !IsForwardTransform && Is1DAtCompileTime && sizeof(SFINAE_T), int> = 4>
+  static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
+    const Index size = dst.size();
+    const shape_t shape = {static_cast<size_t>(size)};
+    constexpr size_t axis = static_cast<size_t>(0);
+    const stride_t stride_in = {src.innerStride() * sizeof(ComplexScalar)};
+    const stride_t stride_out = {dst.innerStride() * sizeof(RealScalar)};
+    const ComplexScalar* src_p = static_cast<const ComplexScalar*>(src.eval().data());
+    RealScalar* dst_p = static_cast<RealScalar*>(dst.data());
+    // TODO: make scaling fact opt-dependent
+    RealScalar scaling_fact = 1.0 / static_cast<RealScalar>(size);
+    c2r(shape, stride_in, stride_out, axis, IsForwardTransform, src_p, dst_p, scaling_fact,
+        1);  // TODO: 1 is nr of threads, allow in opts
+  }
+
+  // 2D - TODO: if C2R, we technically don't need the full src matrix, so if hasFlag(FullSpectrum), there's no need to
+  // call eval() on the whole src... Maybe worth looking into
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<!IsComplexTransform && !IsForwardTransform && !Is1DAtCompileTime && sizeof(SFINAE_T), int> = 5>
+  static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
+    const Index rows = dst.rows();
+    const Index cols = dst.cols();
+    const shape_t shape = {static_cast<size_t>(rows), static_cast<size_t>(cols)};
+    const shape_t axes = {1, 0};
+    const stride_t stride_in = {static_cast<ptrdiff_t>(src.rowStride() * sizeof(ComplexScalar)),
+                                static_cast<ptrdiff_t>(src.colStride() * sizeof(ComplexScalar))};
+    const stride_t stride_out = {static_cast<ptrdiff_t>(dst.rowStride() * sizeof(RealScalar)),
+                                 static_cast<ptrdiff_t>(dst.colStride() * sizeof(RealScalar))};
+    const ComplexScalar* src_p = static_cast<const ComplexScalar*>(src.eval().data());
+    RealScalar* dst_p = static_cast<RealScalar*>(dst.data());
+    RealScalar scaling_fact = 1.0 / static_cast<RealScalar>(rows * cols);
+    c2r(shape, stride_in, stride_out, axes, IsForwardTransform, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 };
@@ -366,6 +429,7 @@ class FFT {
   inline void inv(DstMatrixType& dst, SrcMatrixType& src) {
     internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::allocate(dst, src);
     internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::run(dst, src);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::scale(dst);
   }
 
  private:
