@@ -19,7 +19,6 @@ namespace Eigen {
 
 namespace FFTOption {
 enum : int {
-  Default = 0x0,  // TODO: handle default flags with ternary
   Scaled = 0x1,
   Unscaled = 0x2,
   InPlace = 0x4,  // may be specific to FFTW
@@ -30,6 +29,7 @@ enum : int {
   Serial = 0x80,
   Real = 0x100,
   Complex = 0x200,
+  Defaults = Scaled | OutPlace | FullSpectrum | Serial
   // TODO: Move these to the implementation-specific headers. Only here for now for reference.
   // FFTW API flags
   // PlanMeasure
@@ -57,121 +57,191 @@ struct fft_mat_traits : traits<Derived> {
     MatrixFlags = MatrixType::Flags,
     RowsAtCompileTime = MatrixType::RowsAtCompileTime,
     ColsAtCompileTime = MatrixType::ColsAtCompileTime,
-    SizeAtCompileTime = MatrixType::SizeAtCompileTime,
-    // MaxRowsAtCompileTime = MatrixType::MaxRowsAtCompileTime,
-    // MaxColsAtCompileTime = MatrixType::MaxColsAtCompileTime,
-    // MaxSizeAtCompileTime = MatrixType::MaxSizeAtCompileTime
+    SizeAtCompileTime = MatrixType::SizeAtCompileTime
   };
 
-  // typedef Matrix<RealScalar, RowsAtCompileTime, ColsAtCompileTime,
-  //                AutoAlign | (MatrixFlags & RowMajorBit ? RowMajor : ColMajor), MaxRowsAtCompileTime,
-  //                MaxColsAtCompileTime>
-  //     PlainRealMatrixType;
-
-  // typedef Matrix<ComplexScalar, RowsAtCompileTime, ColsAtCompileTime,
-  //                AutoAlign | (MatrixFlags & RowMajorBit ? RowMajor : ColMajor), MaxRowsAtCompileTime,
-  //                MaxColsAtCompileTime>
-  //     PlainComplexMatrixType;
-
-  // TODO: which other bit flags for matrix options (in Constants.h) should also be considered?
   // TODO: Let Options override flags
+  static constexpr bool RowsKnownAtCompileTime = (RowsAtCompileTime != Dynamic);
+  static constexpr bool ColsKnownAtCompileTime = (ColsAtCompileTime != Dynamic);
   static constexpr bool SizeKnownAtCompileTime = (SizeAtCompileTime != Dynamic);
-  // static constexpr bool MaxSizeKnownAtCompileTime = (MaxSizeAtCompileTime != Dynamic);
   static constexpr bool IsVectorAtCompileTime = MatrixType::IsVectorAtCompileTime;
-  // TODO: add some overload magic to specialize based on a return type too
   static constexpr bool IsComplex = NumTraits<Scalar>::IsComplex;
-  // static constexpr bool DirectAccess = (MatrixFlags & DirectAccessBit);
 };
 
-template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_>
+template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT_T>
 struct fft_traits {
+  static inline constexpr bool hasFlag(int f) { return static_cast<bool>(f & Options); }
+
   using SrcMatrixType = SrcMatrixType_;
   using DstMatrixType = DstMatrixType_;
+
   using src_traits = fft_mat_traits<SrcMatrixType>;
   using dst_traits = fft_mat_traits<DstMatrixType>;
 
   // TODO: some checks for scalar mismatches
   using RealScalar = typename dst_traits::RealScalar;
   using ComplexScalar = typename dst_traits::ComplexScalar;
-  // typedef typename dst_traits::PlainRealMatrixType PlainRealDstMatrixType;
-  // typedef typename dst_traits::PlainComplexMatrixType PlainComplexDstMatrixType;
 
   static constexpr int Options = Options_;
-  // static constexpr bool SrcMaxSizeKnownAtCompileTime = src_traits::MaxSizeKnownAtCompileTime;
-  // static constexpr bool DstMaxSizeKnownAtCompileTime = dst_traits::MaxSizeKnownAtCompileTime;
+
   static constexpr bool SrcIsVectorAtCompileTime = src_traits::IsVectorAtCompileTime;
   static constexpr bool DstIsVectorAtCompileTime = dst_traits::IsVectorAtCompileTime;
+
   static constexpr bool SrcIsComplex = src_traits::IsComplex;
   static constexpr bool DstIsComplex = dst_traits::IsComplex;
-  // static constexpr bool SrcDirectAccess = src_traits::DirectAccess;
-  // static constexpr bool DstDirectAccess = dst_traits::DirectAccess;
 
-  // Final succinct FFT specialization params to distinguish/implement transform types
-  static constexpr Index FFTRowsAtCompileTime = (src_traits::RowsAtCompileTime > dst_traits::RowsAtCompileTime)
-                                                    ? src_traits::RowsAtCompileTime
-                                                    : dst_traits::RowsAtCompileTime;
-  static constexpr Index FFTColsAtCompileTime = (src_traits::ColsAtCompileTime > dst_traits::ColsAtCompileTime)
-                                                    ? src_traits::ColsAtCompileTime
-                                                    : dst_traits::ColsAtCompileTime;
-  static constexpr Index FFTSizeAtCompileTime =
-      (FFTRowsAtCompileTime > 0 && FFTColsAtCompileTime > 0) ? FFTRowsAtCompileTime * FFTColsAtCompileTime : -1;
-
+  // FFT specialization params to be used in SFINAE cases
   static constexpr bool Forward = Direction_;
   static constexpr bool Inverse = !Direction_;
+
   static constexpr bool FFT1D = DstIsVectorAtCompileTime;  // TODO: is this a sufficient criterion?
   static constexpr bool FFT2D = !DstIsVectorAtCompileTime;
-  // TODO: row/col distintction useful?
+
+  static constexpr bool NFFTSet = NFFT_T != Dynamic;
+
+  static constexpr Index DstRowsAtCompileTime = dst_traits::RowsAtCompileTime;
+  static constexpr Index DstColsAtCompileTime = dst_traits::ColsAtCompileTime;
+  static constexpr Index SrcRowsAtCompileTime = src_traits::RowsAtCompileTime;
+  static constexpr Index SrcColsAtCompileTime = src_traits::ColsAtCompileTime;
+  static constexpr Index SrcSizeAtCompileTime = src_traits::SizeAtCompileTime;
+  static constexpr Index DstSizeAtCompileTime = dst_traits::SizeAtCompileTime;
+
   static constexpr bool SrcStatic = src_traits::SizeKnownAtCompileTime;
   static constexpr bool DstStatic = dst_traits::SizeKnownAtCompileTime;
   static constexpr bool SrcDynamic = !src_traits::SizeKnownAtCompileTime;
   static constexpr bool DstDynamic = !dst_traits::SizeKnownAtCompileTime;
+  static constexpr bool SrcRowsStatic = src_traits::RowsKnownAtCompileTime;
+  static constexpr bool DstRowsStatic = dst_traits::RowsKnownAtCompileTime;
+  static constexpr bool SrcRowsDynamic = !src_traits::RowsKnownAtCompileTime;
+  static constexpr bool DstRowsDynamic = !dst_traits::RowsKnownAtCompileTime;
+  static constexpr bool SrcColsStatic = src_traits::ColsKnownAtCompileTime;
+  static constexpr bool DstColsStatic = dst_traits::ColsKnownAtCompileTime;
+  static constexpr bool SrcColsDynamic = !src_traits::ColsKnownAtCompileTime;
+  static constexpr bool DstColsDynamic = !dst_traits::ColsKnownAtCompileTime;
 
   // todo: could add more options later on, maybe implementation-specific
   static constexpr bool C2C = SrcIsComplex && DstIsComplex;
   static constexpr bool C2R = SrcIsComplex && !DstIsComplex && Inverse;
   static constexpr bool R2C = !SrcIsComplex && DstIsComplex && Forward;
 
-  EIGEN_STATIC_ASSERT(C2C || C2R || R2C, "INPUT DATA DOES NOT FIT ANY FFT TRANSFORM TYPE");
+  static constexpr Index FFTRowsAtCompileTime =
+      !NFFTSet
+          ? (R2C && hasFlag(HalfSpectrum) ? SrcRowsAtCompileTime
+                                          : (C2R && hasFlag(HalfSpectrum)                    ? DstRowsAtCompileTime
+                                             : (SrcRowsAtCompileTime > DstRowsAtCompileTime) ? SrcRowsAtCompileTime
+                                                                                             : DstRowsAtCompileTime))
+          : NFFT_T;
+  static constexpr Index FFTColsAtCompileTime =
+      R2C && hasFlag(HalfSpectrum) ? SrcColsAtCompileTime
+                                   : (C2R && hasFlag(HalfSpectrum)                    ? DstColsAtCompileTime
+                                      : (SrcColsAtCompileTime > DstColsAtCompileTime) ? SrcColsAtCompileTime
+                                                                                      : DstColsAtCompileTime);
+  static constexpr Index FFTSizeAtCompileTime =
+      (FFTRowsAtCompileTime > 0 && FFTColsAtCompileTime > 0) ? FFTRowsAtCompileTime * FFTColsAtCompileTime : Dynamic;
 
-  static inline constexpr bool hasFlag(int f) { return static_cast<bool>(f & Options); }
+  static constexpr bool FFTRowsKnownAtCompileTime = FFTRowsAtCompileTime != Dynamic;
+  static constexpr bool FFTColsKnownAtCompileTime = FFTRowsAtCompileTime != Dynamic;
+  static constexpr bool FFTSizeKnownAtCompileTime = FFTSizeAtCompileTime != Dynamic;
+
+  static constexpr Index DstAllocRowsAtCompileTime =
+      FFTRowsKnownAtCompileTime ? (hasFlag(HalfSpectrum) && R2C ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime)
+                                : Dynamic;
+  static constexpr Index DstAllocColsAtCompileTime = FFTColsAtCompileTime;
+  static constexpr Index DstAllocSizeAtCompileTime =
+      FFTSizeKnownAtCompileTime
+          ? (hasFlag(HalfSpectrum) && R2C
+                 ? (DstIsVectorAtCompileTime ? FFTSizeAtCompileTime / 2 + 1
+                                             : (FFTRowsAtCompileTime / 2 + 1) * FFTColsAtCompileTime)
+                 : FFTSizeAtCompileTime)
+          : Dynamic;
+
+  static constexpr bool DstAllocRowsKnownAtCompileTime = DstAllocRowsAtCompileTime != Dynamic;
+  static constexpr bool DstAllocColsKnownAtCompileTime = DstAllocColsAtCompileTime != Dynamic;
+  static constexpr bool DstAllocSizeKnownAtCompileTime = DstAllocSizeAtCompileTime != Dynamic;
+
+  // TODO: More checks
+  EIGEN_STATIC_ASSERT(C2C || C2R || R2C, "INPUT DATA DOES NOT FIT ANY FFT TRANSFORM TYPE");
 };
 
 // TODO: use Options_ to override specializations below
 // TODO: use const references where possible
-template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_>
-struct FFT_impl_base : public fft_traits<DstMatrixType_, SrcMatrixType_, Options_, Direction_> {
-  static constexpr int Options = Options_;
-  using SrcMatrixType = SrcMatrixType_;
-  using DstMatrixType = DstMatrixType_;
-
-  using traits = fft_traits<DstMatrixType_, SrcMatrixType_, Options_, Direction_>;
+template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT_T>
+struct FFT_impl_base : public fft_traits<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T> {
+  using traits = fft_traits<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>;
 
   using typename traits::ComplexScalar;
+  using typename traits::DstMatrixType;
   using typename traits::RealScalar;
+  using typename traits::SrcMatrixType;
 
-  using traits::C2C;
-  using traits::C2R;
+  using traits::Options;
+
+  using traits::DstColsAtCompileTime;
+  using traits::DstRowsAtCompileTime;
+  using traits::DstSizeAtCompileTime;
+  using traits::SrcColsAtCompileTime;
+  using traits::SrcRowsAtCompileTime;
+  using traits::SrcSizeAtCompileTime;
+
+  using traits::FFTColsAtCompileTime;
+  using traits::FFTRowsAtCompileTime;
+  using traits::FFTSizeAtCompileTime;
+  using traits::FFTSizeKnownAtCompileTime;
+
+  using traits::DstAllocColsAtCompileTime;
+  using traits::DstAllocRowsAtCompileTime;
+  using traits::DstAllocRowsKnownAtCompileTime;
+  using traits::DstAllocSizeAtCompileTime;
+  using traits::DstAllocSizeKnownAtCompileTime;
+
   using traits::DstDynamic;
   using traits::DstStatic;
-  using traits::FFT1D;
-  using traits::FFT2D;
-  using traits::Forward;
-  using traits::Inverse;
-  using traits::R2C;
   using traits::SrcDynamic;
   using traits::SrcStatic;
 
+  using traits::C2C;
+  using traits::C2R;
+  using traits::R2C;
+
+  using traits::FFT1D;
+  using traits::FFT2D;
+
+  using traits::Forward;
+  using traits::Inverse;
+
+  using traits::NFFTSet;
+
   using traits::hasFlag;
 
+  // TODO: add overload with argument nfft?
   // Ensure FFT(IFFT(x)) == x if flag 'Scaled' is set. Applied on inverse transform.
-  template <typename SFINAE_T = int, std::enable_if_t<Inverse && hasFlag(Scaled) && sizeof(SFINAE_T), int> = -6>
-  static inline void scale(DstMatrixType& dst) {
-    dst *= 1. / dst.size();
+  // Compiletime determined
+  template <typename SFINAE_T = int,
+            std::enable_if_t<Inverse && hasFlag(Scaled) && FFTSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = -6>
+  static inline void scale(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
+    dst *= 1.0 / static_cast<double>(FFTSizeAtCompileTime);
   }
 
+  // Runtime determined - except C2R
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<Inverse && hasFlag(Scaled) && !FFTSizeKnownAtCompileTime && !C2R && sizeof(SFINAE_T), int> = -6>
+  static inline void scale(DstMatrixType& dst, const SrcMatrixType& src) {
+    dst *= 1.0 / src.size();
+  }
+
+  // Runtime determined C2R
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<Inverse && hasFlag(Scaled) && !FFTSizeKnownAtCompileTime && C2R && sizeof(SFINAE_T), int> = -6>
+  static inline void scale(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
+    dst *= 1.0 / dst.size();
+  }
+
+  // Else (Unscaled Flag)
   template <typename SFINAE_T = int,
             std::enable_if_t<(Forward || (Inverse && hasFlag(Unscaled))) && sizeof(SFINAE_T), int> = -5>
-  static inline void scale(DstMatrixType& /*dst*/) {
+  static inline void scale(DstMatrixType& /*dst*/, const SrcMatrixType& /*src*/) {
     // Do nothing
   }
 
@@ -206,7 +276,7 @@ struct FFT_impl_base : public fft_traits<DstMatrixType_, SrcMatrixType_, Options
       typename SFINAE_T = int,
       std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT1D && (DstStatic || SrcStatic) && sizeof(SFINAE_T), int> = -2>
   static inline void reflectSpectrum(DstMatrixType& dst) {
-    constexpr Index size = traits::FFTSizeAtCompileTime;
+    constexpr Index size = FFTSizeAtCompileTime;
     dst.template tail<size / 2 - 1>().noalias() = dst.template segment<size / 2 - 1>().reverse().conjugate();
   }
 
@@ -219,7 +289,7 @@ struct FFT_impl_base : public fft_traits<DstMatrixType_, SrcMatrixType_, Options
       typename SFINAE_T = int,
       std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT2D && (DstStatic || SrcStatic) && sizeof(SFINAE_T), int> = -1>
   static inline void reflectSpectrum(DstMatrixType& dst) {
-    constexpr Index rows = traits::FFTRowsAtCompileTime;
+    constexpr Index rows = FFTRowsAtCompileTime;
     dst.template bottomRows<rows / 2 - 1>().noalias() =
         dst.template middleRows<1, rows / 2 - 1>()
             .reverse()
@@ -233,30 +303,171 @@ struct FFT_impl_base : public fft_traits<DstMatrixType_, SrcMatrixType_, Options
     // Do nothing
   }
 
-  // TODO: static assert for whether Src is also a vector?
-  // TODO: See if halfspectrum specialization works for rowmajor (it definitely won't rn)
-  // TODO: Handle src size in real inv transforms?
+  // TODO: Specialize on static Rows/Cols for matrices?
   // TODO: Comment on why I do sizeof in SFINAE
-  // TODO: Special cases for static sizes?
 
-  // Real/Complex Transform cases
-  // Static sized Dst
-  // Static sized Src
-  template <typename SFINAE_T = int, std::enable_if_t</*C2C &&*/ DstStatic && SrcStatic && sizeof(SFINAE_T), int> = 1>
-  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
-    // Todo: Maybe allow dst to be bigger than source
-    EIGEN_STATIC_ASSERT_SAME_MATRIX_SIZE(DstMatrixType, SrcMatrixType);
-  }
-  // Dynamic sized Src
-  template <typename SFINAE_T = int, std::enable_if_t</*C2C &&*/ DstStatic && SrcDynamic && sizeof(SFINAE_T), int> = 2>
-  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
-    // Todo: Maybe allow dst to be bigger than source
-    eigen_assert((dst.size() == src.size()) && "Invalid dimensions");
+  // Compiletime determined
+  // 1D with Dst static
+  template <typename SFINAE_T = int,
+            std::enable_if_t<FFT1D && DstStatic && DstAllocSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& /*dst*/, SrcMatrixType& /*src*/, const Index /*nfft*/ = Dynamic) {
+    EIGEN_STATIC_ASSERT(DstAllocSizeAtCompileTime == DstSizeAtCompileTime, "INVALID SIZE FOR DESTINATION");
   }
 
-  // Dynamic sized Dst
-  template <typename SFINAE_T = int, std::enable_if_t</*C2C &&*/ DstDynamic && sizeof(SFINAE_T), int> = 3>
+  // 2D with Dst static
+  template <typename SFINAE_T = int,
+            std::enable_if_t<FFT2D && DstStatic && DstAllocSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& /*dst*/, SrcMatrixType& /*src*/, const Index /*nfft*/ = Dynamic) {
+    EIGEN_STATIC_ASSERT(DstAllocRowsAtCompileTime == DstRowsAtCompileTime, "INVALID NUMBER OF ROWS FOR DESTINATION");
+    EIGEN_STATIC_ASSERT(DstAllocColsAtCompileTime == DstColsAtCompileTime, "INVALID NUMBER OF COLS FOR DESTINATION");
+  }
+
+  // 1D with Dst dynamic
+  template <typename SFINAE_T = int,
+            std::enable_if_t<FFT1D && DstDynamic && DstAllocSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& /*src*/) {
+    dst.resize(DstAllocSizeAtCompileTime);
+  }
+  // R2C
+  template <typename SFINAE_T = int,
+            std::enable_if_t<FFT1D && DstDynamic && DstAllocSizeKnownAtCompileTime && R2C && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& /*src*/, const Index nfft) {
+    eigen_assert(DstAllocSizeAtCompileTime == nfft / 2 + 1 &&
+                 "Explicit FFT size 'nfft' doesn't match inferred halfspectrum size for 'dst'.");
+    dst.resize(DstAllocSizeAtCompileTime);
+  }
+  // other
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<FFT1D && DstDynamic && DstAllocSizeKnownAtCompileTime && !R2C && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& /*src*/, const Index nfft) {
+    eigen_assert(DstAllocSizeAtCompileTime == nfft &&
+                 "Explicit FFT size 'nfft' doesn't match inferred size for 'dst'.");
+    dst.resize(DstAllocSizeAtCompileTime);
+  }
+
+  // 2D with Dst dynamic
+  template <typename SFINAE_T = int,
+            std::enable_if_t<FFT2D && DstDynamic && DstAllocSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& /*src*/) {
+    dst.resize(DstAllocRowsAtCompileTime, DstAllocColsAtCompileTime);
+  }
+  // R2C
+  template <typename SFINAE_T = int,
+            std::enable_if_t<FFT2D && DstDynamic && DstAllocSizeKnownAtCompileTime && R2C && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& /*src*/, const Index nfft) {
+    eigen_assert(DstAllocRowsAtCompileTime == nfft / 2 + 1 &&
+                 "Explicit FFT rows 'nfft' doesn't match inferred halfspectrum rows for 'dst'.");
+    dst.resize(DstAllocRowsAtCompileTime, DstAllocColsAtCompileTime);
+  }
+  // other
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<FFT2D && DstDynamic && DstAllocSizeKnownAtCompileTime && !R2C && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& /*src*/, const Index nfft) {
+    eigen_assert(DstAllocRowsAtCompileTime == nfft &&
+                 "Explicit FFT rows 'nfft' doesn't match inferred rows for 'dst'.");
+    dst.resize(DstAllocRowsAtCompileTime, DstAllocColsAtCompileTime);
+  }
+
+  // Runtime determined
+  // 1D R2C HalfSpectrum
+  template <typename SFINAE_T = int,
+            std::enable_if_t<
+                FFT1D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && R2C && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    eigen_assert(nfft == src.size() && "Explicit FFT size 'nfft' doesn't match input size of source.");
+    dst.resize(nfft / 2 + 1);
+  }
+  template <typename SFINAE_T = int,
+            std::enable_if_t<
+                FFT1D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && R2C && sizeof(SFINAE_T), int> = 1>
   static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
+    dst.resize(src.size() / 2 + 1);
+  }
+
+  // 2D R2C HalfSpectrum
+  template <typename SFINAE_T = int,
+            std::enable_if_t<
+                FFT2D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && R2C && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    eigen_assert(nfft == src.rows() && "Explicit FFT rows 'nfft' doesn't match input size of source.");
+    dst.resize(nfft / 2 + 1, src.cols());
+  }
+  template <typename SFINAE_T = int,
+            std::enable_if_t<
+                FFT2D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && R2C && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
+    dst.resize(src.rows() / 2 + 1, src.cols());
+  }
+
+  // 1D C2R HalfSpectrum
+  template <typename SFINAE_T = int,
+            std::enable_if_t<
+                FFT1D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
+    const Index nfft_odd = (src.size() * 2) - 1;
+    const Index nfft_even = nfft_odd - 1;
+    eigen_assert((dst.size() == nfft_even) ||
+                 (dst.size() == nfft_odd) &&
+                     "Ambiguous size for halfspectrum destination: resize destination manually or explicitly state FFT "
+                     "shape in FFT call.");
+  }
+  template <typename SFINAE_T = int,
+            std::enable_if_t<
+                FFT1D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    const Index nfft_odd = (src.size() * 2) - 1;
+    const Index nfft_even = nfft_odd - 1;
+    eigen_assert((nfft == nfft_even) ||
+                 (nfft == nfft_odd) && "Explicit FFT size 'nfft' doesn't match halfspectrum input size of source.");
+    dst.resize(nfft);
+  }
+
+  // 2D C2R HalfSpectrum
+  template <typename SFINAE_T = int,
+            std::enable_if_t<
+                FFT2D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
+    const Index nfft_odd = (src.rows() * 2) - 1;
+    const Index nfft_even = nfft_odd - 1;
+    eigen_assert((dst.rows() == nfft_even) ||
+                 (dst.rows() == nfft_odd) &&
+                     "Ambiguous rows for halfspectrum destination: resize destination manually or explicitly state FFT "
+                     "shape in FFT call.");
+  }
+  template <typename SFINAE_T = int,
+            std::enable_if_t<
+                FFT2D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    const Index nfft_odd = (src.rows() * 2) - 1;
+    const Index nfft_even = nfft_odd - 1;
+    eigen_assert((nfft == nfft_even) ||
+                 (nfft == nfft_odd) && "Explicit FFT rows 'nfft' doesn't match halfspectrum input rows of source.");
+    dst.resize(nfft, src.cols());
+  }
+
+  // 1D/2D FullSpectrum or C2C
+  template <
+      typename SFINAE_T = int,
+      std::enable_if_t<!DstAllocSizeKnownAtCompileTime && (hasFlag(FullSpectrum) || C2C) && sizeof(SFINAE_T), int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src) {
+    dst.resizeLike(src);
+  }
+  // 1D
+  template <typename SFINAE_T = int, std::enable_if_t<FFT1D && !DstAllocSizeKnownAtCompileTime &&
+                                                          (hasFlag(FullSpectrum) || C2C) && sizeof(SFINAE_T),
+                                                      int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    eigen_assert(src.size() == nfft && "Explicit FFT size 'nfft' doesn't match input size of source.");
+    dst.resizeLike(src);
+  }
+  // 2D
+  template <typename SFINAE_T = int, std::enable_if_t<FFT2D && !DstAllocSizeKnownAtCompileTime &&
+                                                          (hasFlag(FullSpectrum) || C2C) && sizeof(SFINAE_T),
+                                                      int> = 1>
+  static inline void allocate(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    eigen_assert(src.rows() == nfft && "Explicit FFT rows 'nfft' doesn't match input size of source.");
     dst.resizeLike(src);
   }
   // TODO: Plan API for FFTW
@@ -265,39 +476,44 @@ struct FFT_impl_base : public fft_traits<DstMatrixType_, SrcMatrixType_, Options
 // TODO: move this to seperate header and allow for different backends. Only here for testing
 using namespace pocketfft;
 using namespace pocketfft::detail;
-template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_>
-struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direction_> {
-  using Base = FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direction_>;
+template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT_T>
+struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T> {
+  // TODO: Implement NFFT_T/nfft
+  using Base = FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>;
 
   using typename Base::ComplexScalar;
   using typename Base::DstMatrixType;
   using typename Base::RealScalar;
   using typename Base::SrcMatrixType;
 
-  using Base::C2C;
-  using Base::C2R;
+  using Base::Options;
+
   using Base::DstDynamic;
   using Base::DstStatic;
-  using Base::FFT1D;
-  using Base::FFT2D;
-  using Base::Forward;
-  using Base::Inverse;
-  using Base::Options;
-  using Base::R2C;
   using Base::SrcDynamic;
   using Base::SrcStatic;
 
-  using Base::hasFlag;
+  using Base::FFT1D;
+  using Base::FFT2D;
+
+  using Base::Forward;
+  using Base::Inverse;
+
+  using Base::C2C;
+  using Base::C2R;
+  using Base::R2C;
 
   // using Base::scale; FFTPocket functions have their own scaling factor argument
   using Base::allocate;
+  using Base::hasFlag;
   using Base::reflectSpectrum;
 
   template <typename SFINAE_T = int, std::enable_if_t<sizeof(SFINAE_T), int> = -1>
-  static inline void scale(DstMatrixType& dst) {
+  static inline void scale(DstMatrixType& /*dst*/, const SrcMatrixType& /*src*/) {
     // Always do nothing: FFTPocket functions have their own scaling factor argument
   }
 
+  // Todo: Specialize for static sizes?
   // Complex Forward/Inverse Transform cases
   // 1D
   template <typename SFINAE_T = int, std::enable_if_t<C2C && FFT1D && sizeof(SFINAE_T), int> = 0>
@@ -332,7 +548,7 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 
-  // Real Forward Transform cases
+  // R2C
   // 1D
   template <typename SFINAE_T = int, std::enable_if_t<R2C && FFT1D && sizeof(SFINAE_T), int> = 2>
   static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
@@ -363,7 +579,7 @@ struct FFT_impl : FFT_impl_base<DstMatrixType_, SrcMatrixType_, Options_, Direct
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 
-  // Real Inverse Transform cases
+  // C2R
   // 1D
   template <typename SFINAE_T = int, std::enable_if_t<C2R && FFT1D && sizeof(SFINAE_T), int> = 4>
   static inline void run(DstMatrixType& dst, SrcMatrixType& src) {
@@ -405,47 +621,68 @@ namespace FFTDetail {       // Detail namespace allows introducing other scopes 
 using namespace FFTOption;  // this one without exposing it to the `Eigen` scope
 // TODO: maybe add Scalar template for backward comp.
 // TODO: figure out the most elegant solution to the fact that in C++14 I need to do `FFT<> fft;` ...
-template <int Options_ = Scaled | OutPlace | Serial | FullSpectrum>
+template <int Options_ = Defaults>
 class FFT {
   static constexpr int Options = Options_;
 
  public:
-  template <typename DstMatrixType, typename SrcMatrixType>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
   inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src) {
-    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::allocate(dst, src);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::allocate(dst, src);
+  }
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::allocate(dst, src, nfft);
   }
 
-  template <typename DstMatrixType, typename SrcMatrixType>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
   inline void allocateInv(DstMatrixType& dst, SrcMatrixType& src) {
-    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::allocate(dst, src);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::allocate(dst, src);
+  }
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  inline void allocateInv(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::allocate(dst, src, nfft);
   }
 
-  template <typename DstMatrixType, typename SrcMatrixType>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
   inline void fwd(DstMatrixType& dst, SrcMatrixType& src) {
     // Note: keeping track of allocation is likely unnecessary;
     //       The call below should be at most an inlined resize() call
     //       which already efficiently checks if (re)allocation is needed.
-    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::allocate(dst, src);
-    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::run(dst, src);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::allocate(dst, src);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::run(dst, src);
     // Will only compute symmetric conjugate if applicable based on template params
-    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::reflectSpectrum(dst);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::reflectSpectrum(dst);
     // For now, the base implementation only scales on inverse, but a different fft_impl_base
     // derived struct could theoretically scale on both calls, hence `scale` is still called here
-    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward>::scale(dst);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::scale(dst, src);
+  }
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  inline void fwd(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::allocate(dst, src, nfft);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::run(dst, src);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::reflectSpectrum(dst);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::scale(dst, src);
   }
 
-  template <typename DstMatrixType, typename SrcMatrixType>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
   inline void inv(DstMatrixType& dst, SrcMatrixType& src) {
-    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::allocate(dst, src);
-    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::run(dst, src);
-    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse>::scale(dst);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::allocate(dst, src);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::run(dst, src);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::scale(dst, src);
+  }
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  inline void inv(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::allocate(dst, src, nfft);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::run(dst, src);
+    internal::FFT_impl<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::scale(dst, src);
   }
 
  private:
   enum : bool { Forward = true, Inverse = false };
 
   // TODO: Handle run-time options
-  // const int m_opts;s
+  // const int m_opts;
 };
 }  // namespace FFTDetail
 
