@@ -15,11 +15,9 @@
 #include <pocketfft_hdronly.h>
 
 namespace Eigen {
-  namespace FFTOption {
-    enum : int {
-      UsePocketFFT = 0x400
-    };
-  } // namespace FFTOption
+namespace FFTOption {
+enum : int { UsePocketFFT = 0x400 };
+}  // namespace FFTOption
 
 namespace internal {
 namespace PocketFFTDetail {
@@ -169,9 +167,9 @@ using PocketFFTDetail::pocketfft_impl;
 
 template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT_T>
 struct fft_impl_selector {
-    using type = fft_impl_interface<pocketfft_impl<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>, 
-                                   DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>;
+  using type = fft_impl_interface<pocketfft_impl<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>,
+                                  DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>;
 };
-} // namespace internal
+}  // namespace internal
 }  // namespace Eigen
 #endif  // EIGEN_POCKETFFT_IMPL_H

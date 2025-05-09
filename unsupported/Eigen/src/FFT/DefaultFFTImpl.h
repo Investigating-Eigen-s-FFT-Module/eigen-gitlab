@@ -163,14 +163,16 @@ struct default_fft_impl
   // 1D with Dst static
   template <typename SFINAE_T = int,
             std::enable_if_t<FFT1D && DstStatic && DstAllocSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 1>
-  static inline void allocate_impl(DstMatrixType& /*dst*/, const SrcMatrixType& /*src*/, const Index /*nfft*/ = Dynamic) {
+  static inline void allocate_impl(DstMatrixType& /*dst*/, const SrcMatrixType& /*src*/,
+                                   const Index /*nfft*/ = Dynamic) {
     EIGEN_STATIC_ASSERT(DstAllocSizeAtCompileTime == DstSizeAtCompileTime, "INVALID SIZE FOR DESTINATION");
   }
 
   // 2D with Dst static
   template <typename SFINAE_T = int,
             std::enable_if_t<FFT2D && DstStatic && DstAllocSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 1>
-  static inline void allocate_impl(DstMatrixType& /*dst*/, const SrcMatrixType& /*src*/, const Index /*nfft*/ = Dynamic) {
+  static inline void allocate_impl(DstMatrixType& /*dst*/, const SrcMatrixType& /*src*/,
+                                   const Index /*nfft*/ = Dynamic) {
     EIGEN_STATIC_ASSERT(DstAllocRowsAtCompileTime == DstRowsAtCompileTime, "INVALID NUMBER OF ROWS FOR DESTINATION");
     EIGEN_STATIC_ASSERT(DstAllocColsAtCompileTime == DstColsAtCompileTime, "INVALID NUMBER OF COLS FOR DESTINATION");
   }
