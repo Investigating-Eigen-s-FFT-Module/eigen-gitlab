@@ -213,7 +213,9 @@ struct fft_impl_interface : public fft_traits<DstMatrixType_, SrcMatrixType_, Op
 
   static inline void scale(DstMatrixType& dst, const SrcMatrixType& src) { Derived::scale_impl(dst, src); }
 
-  static inline void reflectSpectrum(DstMatrixType& dst) { Derived::reflect_spectrum_impl(dst); }
+  static inline void reflectSpectrum(DstMatrixType& dst, const SrcMatrixType& src) {
+    Derived::reflect_spectrum_impl(dst, src);
+  }
 
   static inline void allocate(DstMatrixType& dst, const SrcMatrixType& src) { Derived::allocate_impl(dst, src); }
 

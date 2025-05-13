@@ -53,7 +53,7 @@ class FFT {
     Impl::allocate(dst, src);
     Impl::run(dst, src);
     // Will only compute symmetric conjugate if applicable based on template params
-    Impl::reflectSpectrum(dst);
+    Impl::reflectSpectrum(dst, src);
     // For now, the default implementation only scales on inverse, but a different fft_impl_base
     // derived struct could theoretically scale on both calls, hence `scale` is still called here
     Impl::scale(dst, src);
@@ -63,7 +63,7 @@ class FFT {
     using Impl = typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::type;
     Impl::allocate(dst, src, nfft);
     Impl::run(dst, src);
-    Impl::reflectSpectrum(dst);
+    Impl::reflectSpectrum(dst, src);
     Impl::scale(dst, src);
   }
 

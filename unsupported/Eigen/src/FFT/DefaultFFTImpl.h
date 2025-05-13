@@ -36,7 +36,7 @@ struct default_fft_impl
   // using Base::SrcRowsAtCompileTime;
   using Base::SrcSizeAtCompileTime;
 
-  // using Base::FFTColsAtCompileTime;
+  using Base::FFTColsAtCompileTime;
   using Base::FFTRowsAtCompileTime;
   using Base::FFTSizeAtCompileTime;
   using Base::FFTSizeKnownAtCompileTime;
@@ -105,22 +105,28 @@ struct default_fft_impl
   template <
       typename SFINAE_T = int,
       std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT1D && DstDynamic && SrcDynamic && sizeof(SFINAE_T), int> = -4>
-  static inline void reflect_spectrum_impl(DstMatrixType& dst) {
-    const Index size = dst.size();
-    dst.tail(size / 2 - 1).noalias() =
-        dst.segment(1, size / 2 - 1).reverse().conjugate();  // TODO: this might not leverage the expression
-                                                             // templates/lazy eval associated with the methods?
+  static inline void reflect_spectrum_impl(DstMatrixType& dst, const SrcMatrixType& src) {
+    const Index size = src.size();
+    dst.tail((size + 1) / 2 - 1).noalias() =
+        dst.segment(1, (size + 1) / 2 - 1).reverse().conjugate();  // TODO: this might not leverage the expression
+                                                                   // templates/lazy eval associated with the methods?
   }
 
   // 2D
   template <
       typename SFINAE_T = int,
       std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT2D && DstDynamic && SrcDynamic && sizeof(SFINAE_T), int> = -3>
-  static inline void reflect_spectrum_impl(DstMatrixType& dst) {
-    const Index rows = dst.rows();
-    dst.bottomRows(rows / 2 - 1).noalias() =
-        dst.middleRows(1, rows / 2 - 1).reverse().conjugate();  // TODO: does this fully leverage the expression
-                                                                // templates/lazy eval associated with the methods?
+  static inline void reflect_spectrum_impl(DstMatrixType& dst, const SrcMatrixType& src) {
+    // TODO: This is correct but definitely needs to be optimized.
+    //       Look into Eigen::Seq Eigen::fix(?) and the like.
+    const Index rows = src.rows();
+    const Index cols = src.cols();
+    for (Index i = rows / 2 + 1; i < rows; i++) {
+      for (Index j = 0; j < cols; j++) {
+        // Bottom half gets the conjugate of the corresponding top half element
+        dst(i, j) = std::conj(dst(rows - i, (cols - j) % cols));
+      }
+    }
   }
 
   // Static src size or dst size
@@ -128,9 +134,11 @@ struct default_fft_impl
   template <
       typename SFINAE_T = int,
       std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT1D && (DstStatic || SrcStatic) && sizeof(SFINAE_T), int> = -2>
-  static inline void reflect_spectrum_impl(DstMatrixType& dst) {
+  static inline void reflect_spectrum_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
+    // TODO: Optimize this, currently likely doesn't lazy compute
     constexpr Index size = FFTSizeAtCompileTime;
-    dst.template tail<size / 2 - 1>().noalias() = dst.template segment<size / 2 - 1>().reverse().conjugate();
+    dst.template tail<(size + 1) / 2 - 1>().noalias() =
+        dst.template segment<(size + 1) / 2 - 1>(1).reverse().conjugate();
   }
 
   // 2D - TODO: As it stands, only the rows need to be known at compiletime for this specialization
@@ -141,18 +149,22 @@ struct default_fft_impl
   template <
       typename SFINAE_T = int,
       std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT2D && (DstStatic || SrcStatic) && sizeof(SFINAE_T), int> = -1>
-  static inline void reflect_spectrum_impl(DstMatrixType& dst) {
+  static inline void reflect_spectrum_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
+    // TODO: This is correct but definitely needs to be optimized.
+    //       Look into Eigen::Seq Eigen::fix(?) and the like.
     constexpr Index rows = FFTRowsAtCompileTime;
-    dst.template bottomRows<rows / 2 - 1>().noalias() =
-        dst.template middleRows<1, rows / 2 - 1>()
-            .reverse()
-            .conjugate();  // TODO: does this fully leverage the expression
-                           // templates/lazy eval associated with the methods?
+    constexpr Index cols = FFTColsAtCompileTime;
+    for (Index i = rows / 2 + 1; i < rows; i++) {
+      for (Index j = 0; j < cols; j++) {
+        // Bottom half gets the conjugate of the corresponding top half element
+        dst(i, j) = std::conj(dst(rows - i, (cols - j) % cols));
+      }
+    }
   }
 
   // Else (no reflection needed)
   template <typename SFINAE_T = int, std::enable_if_t<(!R2C || hasFlag(HalfSpectrum)) && sizeof(SFINAE_T), int> = 0>
-  static inline void reflect_spectrum_impl(DstMatrixType& /*dst*/) {
+  static inline void reflect_spectrum_impl(DstMatrixType& /*dst*/, const SrcMatrixType& /*src*/) {
     // Do nothing
   }
 
@@ -261,19 +273,19 @@ struct default_fft_impl
             std::enable_if_t<
                 FFT1D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src) {
-    const Index nfft_odd = (src.size() * 2) - 1;
-    const Index nfft_even = nfft_odd - 1;
+    const Index nfft_even = (src.size() - 1) * 2;
+    const Index nfft_odd = nfft_even + 1;
     eigen_assert((dst.size() == nfft_even) ||
                  (dst.size() == nfft_odd) &&
-                     "Ambiguous size for halfspectrum destination: resize destination manually or explicitly state FFT "
-                     "shape in FFT call.");
+                     "Ambiguous rows for halfspectrum destination: resize destination manually or explicitly state FFT \
+shape in FFT call.");
   }
   template <typename SFINAE_T = int,
             std::enable_if_t<
                 FFT1D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, const Index nfft) {
-    const Index nfft_odd = (src.size() * 2) - 1;
-    const Index nfft_even = nfft_odd - 1;
+    const Index nfft_even = (src.size() - 1) * 2;
+    const Index nfft_odd = nfft_even + 1;
     eigen_assert((nfft == nfft_even) ||
                  (nfft == nfft_odd) && "Explicit FFT size 'nfft' doesn't match halfspectrum input size of source.");
     dst.resize(nfft);
@@ -284,19 +296,19 @@ struct default_fft_impl
             std::enable_if_t<
                 FFT2D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src) {
-    const Index nfft_odd = (src.rows() * 2) - 1;
-    const Index nfft_even = nfft_odd - 1;
+    const Index nfft_even = (src.rows() - 1) * 2;
+    const Index nfft_odd = nfft_even + 1;
     eigen_assert((dst.rows() == nfft_even) ||
                  (dst.rows() == nfft_odd) &&
-                     "Ambiguous rows for halfspectrum destination: resize destination manually or explicitly state FFT "
-                     "shape in FFT call.");
+                     "Ambiguous rows for halfspectrum destination: resize destination manually or explicitly state FFT \
+shape in FFT call.");
   }
   template <typename SFINAE_T = int,
             std::enable_if_t<
                 FFT2D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, const Index nfft) {
-    const Index nfft_odd = (src.rows() * 2) - 1;
-    const Index nfft_even = nfft_odd - 1;
+    const Index nfft_even = (src.rows() - 1) * 2;
+    const Index nfft_odd = nfft_even + 1;
     eigen_assert((nfft == nfft_even) ||
                  (nfft == nfft_odd) && "Explicit FFT rows 'nfft' doesn't match halfspectrum input rows of source.");
     dst.resize(nfft, src.cols());
