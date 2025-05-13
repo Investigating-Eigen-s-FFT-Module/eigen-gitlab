@@ -24,12 +24,12 @@ namespace PocketFFTDetail {
 using namespace pocketfft;
 using namespace pocketfft::detail;
 
-template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT_T>
+template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT0, Index NFFT1>
 struct pocketfft_impl
-    : public default_fft_impl<pocketfft_impl<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>,
-                              DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T> {
-  using Base = default_fft_impl<pocketfft_impl<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>,
-                                DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>;
+    : public default_fft_impl<pocketfft_impl<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1>,
+                              DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1> {
+  using Base = default_fft_impl<pocketfft_impl<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1>,
+                                DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1>;
 
   using typename Base::ComplexScalar;
   using typename Base::DstMatrixType;
@@ -165,10 +165,10 @@ struct pocketfft_impl
 }  // namespace PocketFFTDetail
 using PocketFFTDetail::pocketfft_impl;
 
-template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT_T>
+template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT0, Index NFFT1>
 struct fft_impl_selector {
-  using type = fft_impl_interface<pocketfft_impl<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>,
-                                  DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>;
+  using type = fft_impl_interface<pocketfft_impl<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1>,
+                                  DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1>;
 };
 }  // namespace internal
 }  // namespace Eigen

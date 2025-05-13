@@ -22,31 +22,36 @@ template <int Options = Defaults | 0x400>
 class FFT {
  public:
   // TODO: add another NFFT template arg (rows + cols), also runtime arg
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
   inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl = typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::type;
+    using Impl =
+        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
     Impl::allocate(dst, src);
   }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
   inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl = typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::type;
+    using Impl =
+        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
     Impl::allocate(dst, src, nfft);
   }
 
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
   inline void allocateInv(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl = typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::type;
+    using Impl =
+        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
     Impl::allocate(dst, src);
   }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
   inline void allocateInv(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl = typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::type;
+    using Impl =
+        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
     Impl::allocate(dst, src, nfft);
   }
 
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
   inline void fwd(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl = typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::type;
+    using Impl =
+        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
     // Note: keeping track of allocation is likely unnecessary;
     //       The call below should be at most an inlined resize() call
     //       which already efficiently checks if (re)allocation is needed.
@@ -58,25 +63,28 @@ class FFT {
     // derived struct could theoretically scale on both calls, hence `scale` is still called here
     Impl::scale(dst, src);
   }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
   inline void fwd(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl = typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT_T>::type;
+    using Impl =
+        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
     Impl::allocate(dst, src, nfft);
     Impl::run(dst, src);
     Impl::reflectSpectrum(dst, src);
     Impl::scale(dst, src);
   }
 
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
   inline void inv(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl = typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::type;
+    using Impl =
+        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
     Impl::allocate(dst, src);
     Impl::run(dst, src);
     Impl::scale(dst, src);
   }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT_T = Dynamic>
+  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
   inline void inv(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl = typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT_T>::type;
+    using Impl =
+        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
     Impl::allocate(dst, src, nfft);
     Impl::run(dst, src);
     Impl::scale(dst, src);

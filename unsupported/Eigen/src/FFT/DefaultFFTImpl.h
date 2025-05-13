@@ -17,10 +17,10 @@ namespace Eigen {
 namespace internal {
 
 template <typename Derived, typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_,
-          Index NFFT_T>
+          Index NFFT0, Index NFFT1>
 struct default_fft_impl
-    : public fft_impl_interface<Derived, DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T> {
-  using Base = fft_impl_interface<Derived, DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>;
+    : public fft_impl_interface<Derived, DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1> {
+  using Base = fft_impl_interface<Derived, DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1>;
 
   // using typename Base::ComplexScalar;
   using typename Base::DstMatrixType;
@@ -42,8 +42,9 @@ struct default_fft_impl
   using Base::FFTSizeKnownAtCompileTime;
 
   using Base::DstAllocColsAtCompileTime;
+  using Base::DstAllocColsKnownAtCompileTime;
   using Base::DstAllocRowsAtCompileTime;
-  // using Base::DstAllocRowsKnownAtCompileTime;
+  using Base::DstAllocRowsKnownAtCompileTime;
   using Base::DstAllocSizeAtCompileTime;
   using Base::DstAllocSizeKnownAtCompileTime;
 
@@ -100,11 +101,11 @@ struct default_fft_impl
 
   // TODO: See if noalias() helps performance (especially for small sizes, for large ones it should)
   // Create the implicit right-half spectrum (conjugate-mirror of the left-half)
-  // Dynamic src and dst sizes
+  // Unknown Compiletime size
   // 1D
-  template <
-      typename SFINAE_T = int,
-      std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT1D && DstDynamic && SrcDynamic && sizeof(SFINAE_T), int> = -4>
+  template <typename SFINAE_T = int,
+            std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT1D && !FFTSizeKnownAtCompileTime && sizeof(SFINAE_T),
+                             int> = -4>
   static inline void reflect_spectrum_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     const Index size = src.size();
     dst.tail((size + 1) / 2 - 1).noalias() =
@@ -113,9 +114,9 @@ struct default_fft_impl
   }
 
   // 2D
-  template <
-      typename SFINAE_T = int,
-      std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT2D && DstDynamic && SrcDynamic && sizeof(SFINAE_T), int> = -3>
+  template <typename SFINAE_T = int,
+            std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT2D && !FFTSizeKnownAtCompileTime && sizeof(SFINAE_T),
+                             int> = -3>
   static inline void reflect_spectrum_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     // TODO: This is correct but definitely needs to be optimized.
     //       Look into Eigen::Seq Eigen::fix(?) and the like.
@@ -129,11 +130,11 @@ struct default_fft_impl
     }
   }
 
-  // Static src size or dst size
+  // Known Compiletime size
   // 1D
-  template <
-      typename SFINAE_T = int,
-      std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT1D && (DstStatic || SrcStatic) && sizeof(SFINAE_T), int> = -2>
+  template <typename SFINAE_T = int,
+            std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT1D && FFTSizeKnownAtCompileTime && sizeof(SFINAE_T),
+                             int> = -2>
   static inline void reflect_spectrum_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
     // TODO: Optimize this, currently likely doesn't lazy compute
     constexpr Index size = FFTSizeAtCompileTime;
@@ -146,9 +147,9 @@ struct default_fft_impl
   //            may cause performance issues with 2D c2r, requiring changes that put the output
   //            into the first columns rather than rows. Change to appropriate specialization
   //            from `SrcSizeKnownAtCompileTime` once it's clear.
-  template <
-      typename SFINAE_T = int,
-      std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT2D && (DstStatic || SrcStatic) && sizeof(SFINAE_T), int> = -1>
+  template <typename SFINAE_T = int,
+            std::enable_if_t<R2C && hasFlag(FullSpectrum) && FFT2D && FFTSizeKnownAtCompileTime && sizeof(SFINAE_T),
+                             int> = -1>
   static inline void reflect_spectrum_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
     // TODO: This is correct but definitely needs to be optimized.
     //       Look into Eigen::Seq Eigen::fix(?) and the like.
@@ -214,27 +215,48 @@ struct default_fft_impl
   }
 
   // 2D with Dst dynamic
+  // Size known at Compiletime
   template <typename SFINAE_T = int,
             std::enable_if_t<FFT2D && DstDynamic && DstAllocSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
     dst.resize(DstAllocRowsAtCompileTime, DstAllocColsAtCompileTime);
   }
-  // R2C
-  template <typename SFINAE_T = int,
-            std::enable_if_t<FFT2D && DstDynamic && DstAllocSizeKnownAtCompileTime && R2C && sizeof(SFINAE_T), int> = 1>
+  // R2C with HalfSpectrum
+  template <typename SFINAE_T = int, std::enable_if_t<FFT2D && DstDynamic && DstAllocSizeKnownAtCompileTime && R2C &&
+                                                          hasFlag(HalfSpectrum) && sizeof(SFINAE_T),
+                                                      int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/, const Index nfft) {
     eigen_assert(DstAllocRowsAtCompileTime == nfft / 2 + 1 &&
                  "Explicit FFT rows 'nfft' doesn't match inferred halfspectrum rows for 'dst'.");
     dst.resize(DstAllocRowsAtCompileTime, DstAllocColsAtCompileTime);
   }
   // other
-  template <
-      typename SFINAE_T = int,
-      std::enable_if_t<FFT2D && DstDynamic && DstAllocSizeKnownAtCompileTime && !R2C && sizeof(SFINAE_T), int> = 1>
+  template <typename SFINAE_T = int, std::enable_if_t<FFT2D && DstDynamic && DstAllocSizeKnownAtCompileTime &&
+                                                          (!R2C || hasFlag(FullSpectrum)) && sizeof(SFINAE_T),
+                                                      int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/, const Index nfft) {
-    eigen_assert(DstAllocRowsAtCompileTime == nfft &&
-                 "Explicit FFT rows 'nfft' doesn't match inferred rows for 'dst'.");
+    eigen_assert(DstAllocRowsAtCompileTime == nfft && "Explicit FFT rows 'nfft' doesn't match rows for 'dst'.");
     dst.resize(DstAllocRowsAtCompileTime, DstAllocColsAtCompileTime);
+  }
+
+  // Special case, Dst Dynamic or Static:
+  // Only Rows known at Compiletime - Mostly useful in case it is an C2R transform with HalfSpectrum enabled,
+  // where the destination rows cannot be inferred from src.rows() but the cols can
+  template <typename SFINAE_T = int,
+            std::enable_if_t<FFT2D && DstAllocRowsKnownAtCompileTime && !DstAllocColsKnownAtCompileTime && C2R &&
+                                 hasFlag(HalfSpectrum) && sizeof(SFINAE_T),
+                             int> = 1>
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src) {
+    dst.resize(DstAllocRowsAtCompileTime, src.cols());
+  }
+  template <typename SFINAE_T = int,
+            std::enable_if_t<FFT2D && DstAllocRowsKnownAtCompileTime && !DstAllocColsKnownAtCompileTime && C2R &&
+                                 hasFlag(HalfSpectrum) && sizeof(SFINAE_T),
+                             int> = 1>
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, const Index nfft) {
+    eigen_assert(nfft / 2 + 1 == DstAllocRowsAtCompileTime &&
+                 "Explicit FFT size 'nfft' doesn't match halfspectrum input size of source.");
+    dst.resize(DstAllocRowsAtCompileTime, src.cols());
   }
 
   // Runtime determined
@@ -291,10 +313,12 @@ shape in FFT call.");
     dst.resize(nfft);
   }
 
-  // 2D C2R HalfSpectrum
+  // 2D C2R HalfSpectrum - also conditioned on !DstAllocRowsKnownAtCompileTime because a specialization
+  // on DstAllocRowsKnownAtCompileTime allows for inferring ambiguous dst size
   template <typename SFINAE_T = int,
-            std::enable_if_t<
-                FFT2D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
+            std::enable_if_t<FFT2D && !DstAllocColsKnownAtCompileTime && !DstAllocRowsKnownAtCompileTime &&
+                                 hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T),
+                             int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     const Index nfft_even = (src.rows() - 1) * 2;
     const Index nfft_odd = nfft_even + 1;
@@ -304,8 +328,9 @@ shape in FFT call.");
 shape in FFT call.");
   }
   template <typename SFINAE_T = int,
-            std::enable_if_t<
-                FFT2D && !DstAllocSizeKnownAtCompileTime && hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T), int> = 1>
+            std::enable_if_t<FFT2D && !DstAllocColsKnownAtCompileTime && !DstAllocRowsKnownAtCompileTime &&
+                                 hasFlag(HalfSpectrum) && C2R && sizeof(SFINAE_T),
+                             int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, const Index nfft) {
     const Index nfft_even = (src.rows() - 1) * 2;
     const Index nfft_odd = nfft_even + 1;
@@ -314,28 +339,35 @@ shape in FFT call.");
     dst.resize(nfft, src.cols());
   }
 
-  // 1D/2D FullSpectrum or C2C
-  template <
-      typename SFINAE_T = int,
-      std::enable_if_t<!DstAllocSizeKnownAtCompileTime && (hasFlag(FullSpectrum) || C2C) && sizeof(SFINAE_T), int> = 1>
-  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src) {
-    dst.resizeLike(src);
-  }
+  // FullSpectrum or C2C
   // 1D
+  template <typename SFINAE_T = int, std::enable_if_t<FFT1D && !DstAllocSizeKnownAtCompileTime &&
+                                                          (hasFlag(FullSpectrum) || C2C) && sizeof(SFINAE_T),
+                                                      int> = 1>
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src) {
+    dst.resize(src.size());
+  }
+
   template <typename SFINAE_T = int, std::enable_if_t<FFT1D && !DstAllocSizeKnownAtCompileTime &&
                                                           (hasFlag(FullSpectrum) || C2C) && sizeof(SFINAE_T),
                                                       int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, const Index nfft) {
     eigen_assert(src.size() == nfft && "Explicit FFT size 'nfft' doesn't match input size of source.");
-    dst.resizeLike(src);
+    dst.resize(src.size());
   }
   // 2D
   template <typename SFINAE_T = int, std::enable_if_t<FFT2D && !DstAllocSizeKnownAtCompileTime &&
                                                           (hasFlag(FullSpectrum) || C2C) && sizeof(SFINAE_T),
                                                       int> = 1>
+  static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src) {
+    dst.resize(src.rows(), src.cols());
+  }
+  template <typename SFINAE_T = int, std::enable_if_t<FFT2D && !DstAllocSizeKnownAtCompileTime &&
+                                                          (hasFlag(FullSpectrum) || C2C) && sizeof(SFINAE_T),
+                                                      int> = 1>
   static inline void allocate_impl(DstMatrixType& dst, const SrcMatrixType& src, const Index nfft) {
     eigen_assert(src.rows() == nfft && "Explicit FFT rows 'nfft' doesn't match input size of source.");
-    dst.resizeLike(src);
+    dst.resize(src.rows(), src.cols());
   }
 };
 }  // namespace internal

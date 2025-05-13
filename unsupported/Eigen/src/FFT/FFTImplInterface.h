@@ -65,7 +65,7 @@ struct fft_mat_traits : traits<Derived> {
   static constexpr bool IsComplex = NumTraits<Scalar>::IsComplex;
 };
 
-template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT_T>
+template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT0, Index NFFT1>
 struct fft_traits {
   static inline constexpr bool hasFlag(int f) { return static_cast<bool>(f & Options); }
 
@@ -91,10 +91,16 @@ struct fft_traits {
   static constexpr bool Forward = Direction_;
   static constexpr bool Inverse = !Direction_;
 
-  static constexpr bool FFT1D = DstIsVectorAtCompileTime;  // TODO: is this a sufficient criterion?
+  static constexpr bool FFT1D =
+      DstIsVectorAtCompileTime;  // TODO: is this a sufficient criterion? Nope, implement recognition of 1D
+                                 //       via NFFT0/NFFT1 as well! But this requires more logic because
+                                 //       FFT1D currentlyimplies vector types in calls
+                                 //       which then wouldn't be the case anymore
   static constexpr bool FFT2D = !DstIsVectorAtCompileTime;
 
-  static constexpr bool NFFTSet = NFFT_T != Dynamic;
+  static constexpr bool NFFT0Set = NFFT0 != Dynamic;
+  static constexpr bool NFFT1Set = NFFT1 != Dynamic;
+  static constexpr bool NFFTSet = NFFT0Set && NFFT1Set;
 
   static constexpr Index DstRowsAtCompileTime = dst_traits::RowsAtCompileTime;
   static constexpr Index DstColsAtCompileTime = dst_traits::ColsAtCompileTime;
@@ -122,19 +128,20 @@ struct fft_traits {
   static constexpr bool R2C = !SrcIsComplex && DstIsComplex && Forward;
 
   static constexpr Index FFTRowsAtCompileTime =
-      !NFFTSet
+      !NFFT0Set
           ? (R2C && hasFlag(HalfSpectrum) ? SrcRowsAtCompileTime
                                           : (C2R && hasFlag(HalfSpectrum)                    ? DstRowsAtCompileTime
                                              : (SrcRowsAtCompileTime > DstRowsAtCompileTime) ? SrcRowsAtCompileTime
                                                                                              : DstRowsAtCompileTime))
-          : NFFT_T;
+          : NFFT0;
   static constexpr Index FFTColsAtCompileTime =
-      R2C && hasFlag(HalfSpectrum) ? SrcColsAtCompileTime
-                                   : (C2R && hasFlag(HalfSpectrum)                    ? DstColsAtCompileTime
-                                      : (SrcColsAtCompileTime > DstColsAtCompileTime) ? SrcColsAtCompileTime
-                                                                                      : DstColsAtCompileTime);
+      !NFFT1Set ? ((SrcColsAtCompileTime > DstColsAtCompileTime) ? SrcColsAtCompileTime : DstColsAtCompileTime) : NFFT1;
+
   static constexpr Index FFTSizeAtCompileTime =
-      (FFTRowsAtCompileTime > 0 && FFTColsAtCompileTime > 0) ? FFTRowsAtCompileTime * FFTColsAtCompileTime : Dynamic;
+      !FFT1D     ? ((FFTRowsAtCompileTime > 0 && FFTColsAtCompileTime > 0) ? FFTRowsAtCompileTime * FFTColsAtCompileTime
+                                                                           : Dynamic)
+      : NFFT0Set ? NFFT0
+                 : Dynamic;  // In case a RowVector is used, specifiying only NFFT0 of the FFT is also enough.
 
   static constexpr bool FFTRowsKnownAtCompileTime = FFTRowsAtCompileTime != Dynamic;
   static constexpr bool FFTColsKnownAtCompileTime = FFTRowsAtCompileTime != Dynamic;
@@ -163,9 +170,9 @@ struct fft_traits {
 // TODO: use Options_ to override specializations below
 // TODO: use const references where possible
 template <typename Derived, typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_,
-          Index NFFT_T>
-struct fft_impl_interface : public fft_traits<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T> {
-  using traits = fft_traits<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT_T>;
+          Index NFFT0, Index NFFT1>
+struct fft_impl_interface : public fft_traits<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1> {
+  using traits = fft_traits<DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1>;
 
   using typename traits::ComplexScalar;
   using typename traits::DstMatrixType;
@@ -228,7 +235,7 @@ struct fft_impl_interface : public fft_traits<DstMatrixType_, SrcMatrixType_, Op
 };
 
 // TODO: allow selection of implementation via Options
-// template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT_T>
+// template <typename DstMatrixType_, typename SrcMatrixType_, int Options_, bool Direction_, Index NFFT0, Index NFFT1>
 // struct fft_impl_selector;
 
 }  // namespace internal
