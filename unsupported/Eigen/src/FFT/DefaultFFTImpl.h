@@ -73,7 +73,7 @@ struct default_fft_impl
   template <typename SFINAE_T = int,
             std::enable_if_t<Inverse && hasFlag(Scaled) && FFTSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = -6>
   static inline void scale_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
-    dst *= 1.0 / static_cast<double>(FFTSizeAtCompileTime);
+    dst *= 1.0 / static_cast<double>(FFTSizeAtCompileTime); // TODO: use Dst Scalar type
   }
 
   // Runtime determined - except C2R
@@ -81,7 +81,7 @@ struct default_fft_impl
       typename SFINAE_T = int,
       std::enable_if_t<Inverse && hasFlag(Scaled) && !FFTSizeKnownAtCompileTime && !C2R && sizeof(SFINAE_T), int> = -6>
   static inline void scale_impl(DstMatrixType& dst, const SrcMatrixType& src) {
-    dst *= 1.0 / src.size();
+    dst *= 1.0 / src.size(); // TODO: use Dst Scalar type
   }
 
   // Runtime determined C2R
@@ -89,7 +89,7 @@ struct default_fft_impl
       typename SFINAE_T = int,
       std::enable_if_t<Inverse && hasFlag(Scaled) && !FFTSizeKnownAtCompileTime && C2R && sizeof(SFINAE_T), int> = -6>
   static inline void scale_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
-    dst *= 1.0 / dst.size();
+    dst *= 1.0 / dst.size(); // TODO: use Dst Scalar type
   }
 
   // Else (Unscaled Flag)
@@ -120,6 +120,7 @@ struct default_fft_impl
   static inline void reflect_spectrum_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     // TODO: This is correct but definitely needs to be optimized.
     //       Look into Eigen::Seq Eigen::fix(?) and the like.
+    // TODO: This may also not work on RowMajor
     const Index rows = src.rows();
     const Index cols = src.cols();
     for (Index i = rows / 2 + 1; i < rows; i++) {
