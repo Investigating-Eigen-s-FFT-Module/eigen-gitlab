@@ -76,6 +76,7 @@ struct fft_traits {
   using dst_traits = fft_mat_traits<DstMatrixType>;
 
   // TODO: some checks for scalar mismatches
+  using Scalar = typename dst_traits::Scalar;
   using RealScalar = typename dst_traits::RealScalar;
   using ComplexScalar = typename dst_traits::ComplexScalar;
 

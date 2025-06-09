@@ -22,9 +22,8 @@ struct default_fft_impl
     : public fft_impl_interface<Derived, DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1> {
   using Base = fft_impl_interface<Derived, DstMatrixType_, SrcMatrixType_, Options_, Direction_, NFFT0, NFFT1>;
 
-  // using typename Base::ComplexScalar;
   using typename Base::DstMatrixType;
-  // using typename Base::RealScalar;
+  using typename Base::Scalar;
   using typename Base::SrcMatrixType;
 
   using Base::Options;
@@ -32,8 +31,6 @@ struct default_fft_impl
   using Base::DstColsAtCompileTime;
   using Base::DstRowsAtCompileTime;
   using Base::DstSizeAtCompileTime;
-  // using Base::SrcColsAtCompileTime;
-  // using Base::SrcRowsAtCompileTime;
   using Base::SrcSizeAtCompileTime;
 
   using Base::FFTColsAtCompileTime;
@@ -63,8 +60,6 @@ struct default_fft_impl
   using Base::Forward;
   using Base::Inverse;
 
-  // using Base::NFFTSet;
-
   using Base::hasFlag;
 
   // TODO: add overload with argument nfft?
@@ -73,7 +68,7 @@ struct default_fft_impl
   template <typename SFINAE_T = int,
             std::enable_if_t<Inverse && hasFlag(Scaled) && FFTSizeKnownAtCompileTime && sizeof(SFINAE_T), int> = -6>
   static inline void scale_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
-    dst *= 1.0 / static_cast<double>(FFTSizeAtCompileTime); // TODO: use Dst Scalar type
+    dst *= static_cast<Scalar>(1.0) / static_cast<Scalar>(FFTSizeAtCompileTime);
   }
 
   // Runtime determined - except C2R
@@ -81,7 +76,7 @@ struct default_fft_impl
       typename SFINAE_T = int,
       std::enable_if_t<Inverse && hasFlag(Scaled) && !FFTSizeKnownAtCompileTime && !C2R && sizeof(SFINAE_T), int> = -6>
   static inline void scale_impl(DstMatrixType& dst, const SrcMatrixType& src) {
-    dst *= 1.0 / src.size(); // TODO: use Dst Scalar type
+    dst *= static_cast<Scalar>(1.0) / static_cast<Scalar>(src.size());
   }
 
   // Runtime determined C2R
@@ -89,7 +84,7 @@ struct default_fft_impl
       typename SFINAE_T = int,
       std::enable_if_t<Inverse && hasFlag(Scaled) && !FFTSizeKnownAtCompileTime && C2R && sizeof(SFINAE_T), int> = -6>
   static inline void scale_impl(DstMatrixType& dst, const SrcMatrixType& /*src*/) {
-    dst *= 1.0 / dst.size(); // TODO: use Dst Scalar type
+    dst *= static_cast<Scalar>(1.0) / static_cast<Scalar>(dst.size());
   }
 
   // Else (Unscaled Flag)
