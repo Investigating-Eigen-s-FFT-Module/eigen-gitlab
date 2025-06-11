@@ -24,6 +24,7 @@
 #include "src/FFT/FFTImplInterface.h"
 #include "src/FFT/DefaultFFTImpl.h"
 #include "src/FFT/PocketFFTImpl.h"
+#include "src/FFT/FFTExpr.h"
 #include "src/FFT/FFT.h"
 // IWYU pragma: end_exports
 

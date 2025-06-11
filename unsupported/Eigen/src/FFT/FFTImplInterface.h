@@ -41,7 +41,8 @@ enum : int {
 namespace internal {
 using namespace FFTOption;
 
-// TODO: Remove unnecessary bool template param for direction where applicable
+// TODO: Remove, likely unnecessary except for maybe RealScalar and ComplexScalar
+// At least the structure is wack
 template <typename Derived>
 struct fft_mat_traits : traits<Derived> {
   using MatrixType = MatrixBase<Derived>;
@@ -231,7 +232,7 @@ struct fft_impl_interface : public fft_traits<DstMatrixType_, SrcMatrixType_, Op
     Derived::allocate_impl(dst, src, nfft);
   }
 
-  static inline void run(DstMatrixType& dst, SrcMatrixType& src) { Derived::run_impl(dst, src); }
+  static inline void run(DstMatrixType& dst, const SrcMatrixType& src) { Derived::run_impl(dst, src); }
   // TODO: Plan API for FFTW
 };
 

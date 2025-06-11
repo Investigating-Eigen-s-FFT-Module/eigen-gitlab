@@ -65,7 +65,7 @@ struct pocketfft_impl
   // Complex Forward/Inverse Transform cases
   // 1D
   template <typename SFINAE_T = int, std::enable_if_t<C2C && FFT1D && sizeof(SFINAE_T), int> = 0>
-  static inline void run_impl(DstMatrixType& dst, SrcMatrixType& src) {
+  static inline void run_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     const Index size = src.size();
     const shape_t shape = {static_cast<size_t>(size)};
     const shape_t axes = {0};
@@ -80,7 +80,7 @@ struct pocketfft_impl
 
   // 2D
   template <typename SFINAE_T = int, std::enable_if_t<C2C && FFT2D && sizeof(SFINAE_T), int> = 1>
-  static inline void run_impl(DstMatrixType& dst, SrcMatrixType& src) {
+  static inline void run_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     const Index rows = src.rows();
     const Index cols = src.cols();
     const shape_t shape = {static_cast<size_t>(rows), static_cast<size_t>(cols)};
@@ -99,7 +99,7 @@ struct pocketfft_impl
   // R2C
   // 1D
   template <typename SFINAE_T = int, std::enable_if_t<R2C && FFT1D && sizeof(SFINAE_T), int> = 2>
-  static inline void run_impl(DstMatrixType& dst, SrcMatrixType& src) {
+  static inline void run_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     const shape_t shape = {static_cast<size_t>(src.size())};
     constexpr size_t axis = static_cast<size_t>(0);
     const stride_t stride_in = {src.innerStride() * sizeof(RealScalar)};
@@ -113,7 +113,7 @@ struct pocketfft_impl
 
   // 2D
   template <typename SFINAE_T = int, std::enable_if_t<R2C && FFT2D && sizeof(SFINAE_T), int> = 3>
-  static inline void run_impl(DstMatrixType& dst, SrcMatrixType& src) {
+  static inline void run_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     const shape_t shape = {static_cast<size_t>(src.rows()), static_cast<size_t>(src.cols())};
     const shape_t axes = {1, 0};
     const stride_t stride_in = {static_cast<ptrdiff_t>(src.rowStride() * sizeof(RealScalar)),
@@ -130,7 +130,7 @@ struct pocketfft_impl
   // C2R
   // 1D
   template <typename SFINAE_T = int, std::enable_if_t<C2R && FFT1D && sizeof(SFINAE_T), int> = 4>
-  static inline void run_impl(DstMatrixType& dst, SrcMatrixType& src) {
+  static inline void run_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     const Index size = dst.size();
     const shape_t shape = {static_cast<size_t>(size)};
     constexpr size_t axis = static_cast<size_t>(0);
@@ -146,7 +146,7 @@ struct pocketfft_impl
   // 2D - TODO: if C2R, we technically don't need the full src matrix, so if hasFlag(FullSpectrum), there's no need to
   // call eval() on the whole src... Maybe worth looking into
   template <typename SFINAE_T = int, std::enable_if_t<C2R && FFT2D && sizeof(SFINAE_T), int> = 5>
-  static inline void run_impl(DstMatrixType& dst, SrcMatrixType& src) {
+  static inline void run_impl(DstMatrixType& dst, const SrcMatrixType& src) {
     const Index rows = dst.rows();
     const Index cols = dst.cols();
     const shape_t shape = {static_cast<size_t>(rows), static_cast<size_t>(cols)};

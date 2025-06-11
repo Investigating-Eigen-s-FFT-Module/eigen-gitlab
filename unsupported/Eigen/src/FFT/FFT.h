@@ -90,6 +90,17 @@ class FFT {
     Impl::scale(dst, src);
   }
 
+  // TEST UNARY, TODO: MAKE FINAL
+  template <typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  const inline FFTExpr<SrcMatrixType, Options, true, NFFT0, NFFT1> fwd(const SrcMatrixType& src) const {
+    return FFTExpr<SrcMatrixType, Options, Forward, NFFT0, NFFT1>(src);
+  }
+
+  template <typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  const inline FFTExpr<SrcMatrixType, Options, false, NFFT0, NFFT1> inv(const SrcMatrixType& src) const {
+    return FFTExpr<SrcMatrixType, Options, Inverse, NFFT0, NFFT1>(src);
+  }
+
  private:
   enum : bool { Forward = true, Inverse = false };
 
