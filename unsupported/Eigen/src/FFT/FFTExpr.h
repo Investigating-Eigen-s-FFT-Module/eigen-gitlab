@@ -31,9 +31,10 @@ class FFTExpr : public DenseBase<FFTExpr<RhsType, Options, Direction, NFFT0, NFF
   explicit FFTExpr(const RhsType& rhs) : m_rhs(rhs), m_rows(RowsAtCompileTime), m_cols(ColsAtCompileTime) {
     // The output dimensions of an inverse C2R FFT with the RHS being only the symmetric half spectrum
     // cannot be determined solely from the RHS dimensions, hence this constructor is invalid for this case
-    EIGEN_STATIC_ASSERT((RowsAtCompileTime != Dynamic && ColsAtCompileTime != Dynamic) ||
-                            (Direction || !(static_cast<bool>(HalfSpectrumEnabled))),
-                        YOU_NEED_TO_SPECIFY_FFT_DIMENSIONS_WHEN_CALLING_AN_INVERSE_FFT_WITH_HALFSPECTRUM_ENABLED)
+    EIGEN_STATIC_ASSERT(
+        (RowsAtCompileTime != Dynamic && ColsAtCompileTime != Dynamic) ||
+            (Direction || !(static_cast<bool>(HalfSpectrumEnabled))),
+        WHEN_HALFSPECTRUM_IS_ENABLED_YOU_NEED_TO_SPECIFY_FFT_DIMENSIONS_WHEN_CALLING_FFT_INV_WITH_ONE_ARGUMENT)
   }
 
   explicit FFTExpr(const RhsType& rhs, const Index nfft)
@@ -46,8 +47,8 @@ class FFTExpr : public DenseBase<FFTExpr<RhsType, Options, Direction, NFFT0, NFF
 
   explicit FFTExpr(const RhsType& rhs, const Index nfft0, const Index nfft1)
       : m_rhs(rhs), m_rows(R2CHalfSpectrum ? nfft0 / 2 + 1 : nfft0), m_cols(nfft1) {
-    eigen_assert(m_rows >= 0 && (RowsAtCompileTime == Dynamic || RowsAtCompileTime == m_rows) && m_cols >= 0 &&
-                 (ColsAtCompileTime == Dynamic || ColsAtCompileTime == m_cols));
+    eigen_assert(m_rows.value() >= 0 && (RowsAtCompileTime == Dynamic || RowsAtCompileTime == m_rows.value()) &&
+                 m_cols >= 0 && (ColsAtCompileTime == Dynamic || ColsAtCompileTime == m_cols.value()));
   }
 
   EIGEN_CONSTEXPR Index rows() const EIGEN_NOEXCEPT {
@@ -128,11 +129,8 @@ struct evaluator<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>>
     using Impl = typename internal::fft_impl_selector<PlainObject, RhsType, Options, Direction, NFFT0, NFFT1>::type;
 
     internal::construct_at<Base>(this, m_result);
-
-    Impl::allocate(m_result, fft_expr.rhs());
-    Impl::run(m_result, fft_expr.rhs());
-    Impl::reflectSpectrum(m_result, fft_expr.rhs());
-    Impl::scale(m_result, fft_expr.rhs());
+    // TODO: might need to resize m_result, add alloc method to Impl
+    Impl(m_result, fft_expr.rhs()).compute();
   }
 
  protected:
@@ -146,11 +144,7 @@ struct Assignment<DstXprType, FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>
   static void run(DstXprType& dst, const SrcXprType& src,
                   const internal::assign_op<typename DstXprType::Scalar, typename RhsType::Scalar>&) {
     using Impl = typename internal::fft_impl_selector<DstXprType, RhsType, Options, Direction, NFFT0, NFFT1>::type;
-
-    Impl::allocate(dst, src.rhs());
-    Impl::run(dst, src.rhs());
-    Impl::reflectSpectrum(dst, src.rhs());
-    Impl::scale(dst, src.rhs());
+    Impl(dst, src.rhs()).compute();
   }
 };
 }  // namespace internal

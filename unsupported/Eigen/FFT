@@ -21,9 +21,8 @@
 
 // TODO: I think the IWYU pragma should be like this, verify
 // IWYU pragma: begin_exports
-#include "src/FFT/FFTImplInterface.h"
-#include "src/FFT/DefaultFFTImpl.h"
-#include "src/FFT/PocketFFTImpl.h"
+#include "src/FFT/FFTImplBase.h"
+#include "src/FFT/PocketFFT.h"
 #include "src/FFT/FFTExpr.h"
 #include "src/FFT/FFT.h"
 // IWYU pragma: end_exports
