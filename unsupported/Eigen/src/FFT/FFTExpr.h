@@ -101,13 +101,9 @@ struct traits<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>> {
     MaxColsAtCompileTime = ColsAtCompileTime
   };
 
-  using PlainMatrix =
-      Matrix<Scalar, RowsAtCompileTime, ColsAtCompileTime, AutoAlign | (Flags & RowMajorBit ? RowMajor : ColMajor),
-             MaxRowsAtCompileTime, MaxColsAtCompileTime>;
-  using PlainArray =
-      Array<Scalar, RowsAtCompileTime, ColsAtCompileTime, AutoAlign | (Flags & RowMajorBit ? RowMajor : ColMajor),
-            MaxRowsAtCompileTime, MaxColsAtCompileTime>;
-  using PlainObject = std::conditional_t<internal::is_same<XprKind, MatrixXpr>::value, PlainMatrix, PlainArray>;
+  // Can also be Array type
+  using PlainObject =
+      typename plain_matrix_type_dense<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>, XprKind, Flags>::type;
 
   enum DerivedCompileTimeTraits {
     InnerStrideAtCompileTime = traits<PlainObject>::InnerStrideAtCompileTime,
@@ -129,7 +125,6 @@ struct evaluator<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>>
     using Impl = typename internal::fft_impl_selector<PlainObject, RhsType, Options, Direction, NFFT0, NFFT1>::type;
 
     internal::construct_at<Base>(this, m_result);
-    // TODO: might need to resize m_result, add alloc method to Impl
     Impl(m_result, fft_expr.rhs()).compute();
   }
 

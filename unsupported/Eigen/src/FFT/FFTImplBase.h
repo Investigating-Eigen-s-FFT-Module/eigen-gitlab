@@ -110,7 +110,7 @@ class FFTImplBase {
   const SrcType& src() const { return m_src; }
 
   EIGEN_STRONG_INLINE void compute() {
-    this->_runtime_sanity_check_dims();
+    this->_allocate_impl();
     this->derived()._run_impl(m_dst, m_src);
     m_dst = this->derived()._scale_impl(this->derived()._reflect_spectrum_impl(m_dst));
   }
@@ -160,10 +160,14 @@ class FFTImplBase {
       std::enable_if_t<FFT1D && (DstType::SizeAtCompileTime == Dynamic || SrcType::SizeAtCompileTime == Dynamic) &&
                            sizeof(SFINAE_T),
                        int> = 0>
-  EIGEN_STRONG_INLINE void _runtime_sanity_check_dims() {
-    internal::check_implication(R2CHalfSpectrum, m_src.size() / 2 + 1 == m_dst.size());
-    internal::check_implication(C2RHalfSpectrum, m_dst.size() / 2 + 1 == m_src.size());
-    internal::check_implication(!R2CHalfSpectrum && !C2RHalfSpectrum, m_dst.size() == m_src.size());
+  EIGEN_STRONG_INLINE void _allocate_impl() {
+    m_dst.resize(R2CHalfSpectrum ? this->nfft() / 2 + 1 : this->nfft());
+    eigen_assert(internal::check_implication(R2CHalfSpectrum, m_src.size() / 2 + 1 == m_dst.size()) &&
+                 "INVALID_VECTOR_DIMENSIONS_FOR_HALFSPECTRUM_R2C_FFT");
+    eigen_assert(internal::check_implication(C2RHalfSpectrum, m_dst.size() / 2 + 1 == m_src.size()) &&
+                 "INVALID_VECTOR_DIMENSIONS_FOR_HALFSPECTRUM_C2R_FFT");
+    eigen_assert(internal::check_implication(!R2CHalfSpectrum && !C2RHalfSpectrum, m_dst.size() == m_src.size()) &&
+                 "INVALID_VECTOR_DIMENSIONS_FOR_FFT");
   }
 
   template <
@@ -171,17 +175,23 @@ class FFTImplBase {
       std::enable_if_t<FFT2D && (DstType::SizeAtCompileTime == Dynamic || SrcType::SizeAtCompileTime == Dynamic) &&
                            sizeof(SFINAE_T),
                        int> = 0>
-  EIGEN_STRONG_INLINE void _runtime_sanity_check_dims() {
-    internal::check_implication(R2CHalfSpectrum, m_src.rows() / 2 + 1 == m_dst.rows() && m_src.cols() == m_dst.cols());
-    internal::check_implication(C2RHalfSpectrum, m_dst.rows() / 2 + 1 == m_src.rows() && m_dst.cols() == m_src.cols());
-    internal::check_implication(!R2CHalfSpectrum && !C2RHalfSpectrum,
-                                m_dst.rows() == m_src.rows() && m_dst.cols() == m_src.cols());
+  EIGEN_STRONG_INLINE void _allocate_impl() {
+    m_dst.resize(R2CHalfSpectrum ? this->nfft0() / 2 + 1 : this->nfft0(), this->nfft1());
+    eigen_assert(internal::check_implication(R2CHalfSpectrum,
+                                             m_src.rows() / 2 + 1 == m_dst.rows() && m_src.cols() == m_dst.cols()) &&
+                 "INVALID_MATRIX_DIMENSIONS_FOR_HALFSPECTRUM_R2C_FFT");
+    eigen_assert(internal::check_implication(C2RHalfSpectrum,
+                                             m_dst.rows() / 2 + 1 == m_src.rows() && m_dst.cols() == m_src.cols()) &&
+                 "INVALID_MATRIX_DIMENSIONS_FOR_HALFSPECTRUM_C2R_FFT");
+    eigen_assert(internal::check_implication(!R2CHalfSpectrum && !C2RHalfSpectrum,
+                                             m_dst.rows() == m_src.rows() && m_dst.cols() == m_src.cols()) &&
+                 "INVALID_MATRIX_DIMENSIONS_FOR_FFT");
   }
 
   template <typename SFINAE_T = int, std::enable_if_t<DstType::SizeAtCompileTime != Dynamic &&
                                                           SrcType::SizeAtCompileTime != Dynamic && sizeof(SFINAE_T),
                                                       int> = 0>
-  EIGEN_STRONG_INLINE void _runtime_sanity_check_dims() {
+  EIGEN_STRONG_INLINE void _allocate_impl() {
     // do nothing - static checks in traits<FFTImplBase>
   }
 
