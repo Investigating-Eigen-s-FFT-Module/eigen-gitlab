@@ -21,68 +21,68 @@ using namespace FFTOption;  // this one without exposing it to the `Eigen` scope
 template <int Options = Defaults | 0x400>
 class FFT {
  public:
-  // // TODO: add another NFFT template arg (rows + cols), also runtime arg
-  // template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  // inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src) {
-  //   using Impl =
-  //       typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
-  //   Impl::allocate(dst, src);
-  // }
-  // template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  // inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-  //   using Impl =
-  //       typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
-  //   Impl::allocate(dst, src, nfft);
-  // }
-
-  // template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  // inline void allocateInv(DstMatrixType& dst, SrcMatrixType& src) {
-  //   using Impl =
-  //       typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
-  //   Impl::allocate(dst, src);
-  // }
-  // template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  // inline void allocateInv(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-  //   using Impl =
-  //       typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
-  //   Impl::allocate(dst, src, nfft);
-  // }
-
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void fwd(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
-    Impl(dst, src).compute();
+  template <typename DstType, typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  inline void fwd(DenseBase<DstType>& dst, DenseBase<SrcType>& src) {
+    using Impl = typename internal::fft_impl_selector<DstType, SrcType, Options, Forward, NFFT0, NFFT1>::type;
+    Impl(dst.derived(), src.derived()).compute();
   }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void fwd(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
-    Impl(dst, src, nfft).compute();
+  template <typename DstType, typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  inline void fwd(DenseBase<DstType>& dst, DenseBase<SrcType>& src, const Index nfft) {
+    using Impl = typename internal::fft_impl_selector<DstType, SrcType, Options, Forward, NFFT0, NFFT1>::type;
+    Impl(dst.derived(), src.derived(), nfft).compute();
+  }
+  template <typename DstType, typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  inline void fwd(DenseBase<DstType>& dst, DenseBase<SrcType>& src, const Index nfft0, const Index nfft1) {
+    using Impl = typename internal::fft_impl_selector<DstType, SrcType, Options, Forward, NFFT0, NFFT1>::type;
+    Impl(dst.derived(), src.derived(), nfft0, nfft1).compute();
   }
 
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void inv(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
-    Impl(dst, src).compute();
+  template <typename DstType, typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  inline void inv(DenseBase<DstType>& dst, DenseBase<SrcType>& src) {
+    using Impl = typename internal::fft_impl_selector<DstType, SrcType, Options, Inverse, NFFT0, NFFT1>::type;
+    Impl(dst.derived(), src.derived()).compute();
   }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void inv(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
-    Impl(dst, src, nfft).compute();
+  template <typename DstType, typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  inline void inv(DenseBase<DstType>& dst, DenseBase<SrcType>& src, const Index nfft) {
+    using Impl = typename internal::fft_impl_selector<DstType, SrcType, Options, Inverse, NFFT0, NFFT1>::type;
+    Impl(dst.derived(), src.derived(), nfft).compute();
+  }
+  template <typename DstType, typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  inline void inv(DenseBase<DstType>& dst, DenseBase<SrcType>& src, const Index nfft0, const Index nfft1) {
+    using Impl = typename internal::fft_impl_selector<DstType, SrcType, Options, Inverse, NFFT0, NFFT1>::type;
+    Impl(dst.derived(), src.derived(), nfft0, nfft1).compute();
   }
 
   // TEST UNARY, TODO: MAKE FINAL
-  template <typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  const inline FFTExpr<SrcMatrixType, Options, true, NFFT0, NFFT1> fwd(const SrcMatrixType& src) const {
-    return FFTExpr<SrcMatrixType, Options, Forward, NFFT0, NFFT1>(src);
+  template <typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  const inline FFTExprUnknownLhs<SrcType, Options, true, NFFT0, NFFT1> fwd(const DenseBase<SrcType>& src) const {
+    return FFTExprUnknownLhs<SrcType, Options, Forward, NFFT0, NFFT1>(src.derived());
+  }
+  template <typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  const inline FFTExprUnknownLhs<SrcType, Options, true, NFFT0, NFFT1> fwd(const DenseBase<SrcType>& src,
+                                                                           const Index nfft) const {
+    return FFTExprUnknownLhs<SrcType, Options, Forward, NFFT0, NFFT1>(src.derived(), nfft);
+  }
+  template <typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  const inline FFTExprUnknownLhs<SrcType, Options, true, NFFT0, NFFT1> fwd(const DenseBase<SrcType>& src,
+                                                                           const Index nfft0, const Index nfft1) const {
+    return FFTExprUnknownLhs<SrcType, Options, Forward, NFFT0, NFFT1>(src.derived(), nfft0, nfft1);
   }
 
-  template <typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  const inline FFTExpr<SrcMatrixType, Options, false, NFFT0, NFFT1> inv(const SrcMatrixType& src) const {
-    return FFTExpr<SrcMatrixType, Options, Inverse, NFFT0, NFFT1>(src);
+  template <typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  const inline FFTExprUnknownLhs<SrcType, Options, false, NFFT0, NFFT1> inv(const DenseBase<SrcType>& src) const {
+    return FFTExprUnknownLhs<SrcType, Options, Inverse, NFFT0, NFFT1>(src.derived());
+  }
+  template <typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  const inline FFTExprUnknownLhs<SrcType, Options, false, NFFT0, NFFT1> inv(const DenseBase<SrcType>& src,
+                                                                            const Index nfft) const {
+    return FFTExprUnknownLhs<SrcType, Options, Inverse, NFFT0, NFFT1>(src.derived(), nfft);
+  }
+  template <typename SrcType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+  const inline FFTExprUnknownLhs<SrcType, Options, false, NFFT0, NFFT1> inv(const DenseBase<SrcType>& src,
+                                                                            const Index nfft0,
+                                                                            const Index nfft1) const {
+    return FFTExprUnknownLhs<SrcType, Options, Inverse, NFFT0, NFFT1>(src.derived(), nfft0, nfft1);
   }
 
  private:

@@ -47,7 +47,7 @@ template <typename Derived, typename DstType, typename SrcType, int Options, boo
 class FFTImplBase {
  public:
   using FFTTraits = internal::traits<FFTImplBase>;
-  using DstScalar = typename DstType::Scalar;
+  using DstScalar = typename FFTTraits::DstScalar;
 
   enum {
     C2C = FFTTraits::C2C,
@@ -68,30 +68,22 @@ class FFTImplBase {
     SrcAllocSizeAtCompileTime = FFTTraits::SrcAllocSizeAtCompileTime
   };
 
+  static EIGEN_STRONG_INLINE EIGEN_CONSTEXPR auto has_opt = FFTTraits::has_opt;
+
   EIGEN_CONSTEXPR Derived& derived() { return *static_cast<Derived*>(this); }
   EIGEN_CONSTEXPR const Derived& derived() const { return *static_cast<const Derived*>(this); }
-  static EIGEN_STRONG_INLINE EIGEN_CONSTEXPR bool has_opt(const int opt) { return static_cast<bool>(Options & opt); }
 
-  explicit FFTImplBase(DstType& lhs, const SrcType& rhs)
+  explicit FFTImplBase(DstType& lhs, const SrcType& rhs, const Index nfft0 = FFTRowsAtCompileTime,
+                       const Index nfft1 = FFTColsAtCompileTime)
       : m_dst(lhs),
         m_src(rhs),
-        _nfft(FFTSizeAtCompileTime),
-        _nfft0(FFT1D ? FFTSizeAtCompileTime : FFTRowsAtCompileTime),
-        _nfft1(FFT1D ? 1 : FFTColsAtCompileTime) {}
-
-  explicit FFTImplBase(DstType& lhs, const SrcType& rhs, const Index nfft)
-      : m_dst(lhs), m_src(rhs), _nfft(nfft), _nfft0(nfft), _nfft1(1) {
-    EIGEN_STATIC_ASSERT((FFTRowsAtCompileTime == Dynamic && FFTColsAtCompileTime == Dynamic) || FFT1D,
-                        EXPECTED_1D_FFT_WHEN_CALLING_WITH_SINGLE_RUNTIME_NFFT_ARG_BUT_GOT_2D_DATA)
-    eigen_assert(nfft >= 0);
-  }
-
-  explicit FFTImplBase(DstType& lhs, const SrcType& rhs, const Index nfft0, const Index nfft1)
-      : m_dst(lhs), m_src(rhs), _nfft(nfft0 * nfft1), _nfft0(nfft0), _nfft1(nfft1) {
-    eigen_assert((nfft0 >= 0 && nfft1 >= 0) &&
-                 (FFT1D || ((FFTRowsAtCompileTime == Dynamic || FFTRowsAtCompileTime == nfft0) &&
-                            (FFTColsAtCompileTime == Dynamic || FFTColsAtCompileTime == nfft1))) &&
-                 (FFTSizeAtCompileTime == Dynamic || FFTSizeAtCompileTime == nfft0 * nfft1));
+        _nfft((nfft0 == Dynamic || nfft1 == Dynamic) ? Dynamic : nfft0 * nfft1),
+        _nfft0(nfft0),
+        _nfft1(nfft1) {
+    eigen_assert(
+        internal::check_implication(nfft0 >= 0, (FFTRowsAtCompileTime == Dynamic || FFTRowsAtCompileTime == nfft0)));
+    eigen_assert(
+        internal::check_implication(nfft1 >= 0, (FFTColsAtCompileTime == Dynamic || FFTColsAtCompileTime == nfft1)));
   }
 
   EIGEN_CONSTEXPR Index nfft() const EIGEN_NOEXCEPT {
@@ -207,9 +199,18 @@ using FFTDetail::FFTImplBase;  // Bring to Eigen scope without exposing FFTOptio
 
 namespace internal {
 
-template <typename Derived, typename DstType, typename SrcType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct traits<FFTImplBase<Derived, DstType, SrcType, Options, Direction, NFFT0, NFFT1>> {
-  // TODO: ADD SCALAR TYPES?
+template <typename DstType, typename SrcType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct fft_traits {
+  using DstScalar = typename DstType::Scalar;
+  using SrcScalar = typename SrcType::Scalar;
+  using RealScalar = typename SrcType::RealScalar;
+
+  enum { SameRealType = internal::is_same<RealScalar, typename DstType::RealScalar>::value };
+  EIGEN_STATIC_ASSERT(
+      SameRealType,
+      YOU_MIXED_DIFFERENT_REAL_NUMERIC_TYPES__YOU_NEED_TO_USE_THE_CAST_METHOD_TO_CAST_NUMERIC_TYPES_EXPLICITLY)
+
+  static EIGEN_STRONG_INLINE EIGEN_CONSTEXPR bool has_opt(const int opt) { return static_cast<bool>(Options & opt); }
 
   // Base case - no fixed sizes found, return Dynamic
   static EIGEN_STRONG_INLINE EIGEN_CONSTEXPR Index get_first_fixed_size() { return Dynamic; }
@@ -222,11 +223,12 @@ struct traits<FFTImplBase<Derived, DstType, SrcType, Options, Direction, NFFT0, 
 
   // Determine FFT Kernel (C2C, C2R, R2C)
   enum FFTOptionTraits {
-    C2C = NumTraits<typename DstType::Scalar>::IsComplex && NumTraits<typename SrcType::Scalar>::IsComplex,
-    C2R = NumTraits<typename DstType::Scalar>::IsComplex && !NumTraits<typename SrcType::Scalar>::IsComplex,
-    R2C = !NumTraits<typename DstType::Scalar>::IsComplex && NumTraits<typename SrcType::Scalar>::IsComplex,
-    R2CHalfSpectrum = R2C && static_cast<bool>(Options & Eigen::FFTOption::HalfSpectrum),
-    C2RHalfSpectrum = C2R && static_cast<bool>(Options & Eigen::FFTOption::HalfSpectrum),
+    C2C = NumTraits<DstScalar>::IsComplex && NumTraits<SrcScalar>::IsComplex,
+    C2R = !NumTraits<DstScalar>::IsComplex && NumTraits<SrcScalar>::IsComplex,
+    R2C = NumTraits<DstScalar>::IsComplex && !NumTraits<SrcScalar>::IsComplex,
+    HalfSpectrumEnabled = static_cast<bool>(Options & Eigen::FFTOption::HalfSpectrum),
+    R2CHalfSpectrum = R2C && HalfSpectrumEnabled,
+    C2RHalfSpectrum = C2R && HalfSpectrumEnabled,
     Forward = Direction,
     Inverse = !Direction,
   };
@@ -292,6 +294,17 @@ struct traits<FFTImplBase<Derived, DstType, SrcType, Options, Direction, NFFT0, 
   EIGEN_STATIC_ASSERT(FFT2D || SrcType::SizeAtCompileTime == Dynamic ||
                           SrcType::SizeAtCompileTime == SrcAllocSizeAtCompileTime,
                       INVALID_1D_FFT_DIMENSIONS_FOR_SOURCE)
+};
+
+template <typename Derived, typename DstType, typename SrcType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct traits<FFTImplBase<Derived, DstType, SrcType, Options, Direction, NFFT0, NFFT1>>
+    : fft_traits<DstType, SrcType, Options, Direction, NFFT0, NFFT1> {
+  using Base = fft_traits<DstType, SrcType, Options, Direction, NFFT0, NFFT1>;
+  using typename Base::DstScalar;
+  using typename Base::RealScalar;
+  using typename Base::SrcScalar;
+
+  using Base::has_opt;
 };
 }  // namespace internal
 }  // namespace Eigen

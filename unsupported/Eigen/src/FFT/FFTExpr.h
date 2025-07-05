@@ -14,108 +14,156 @@
 #include "./InternalHeaderCheck.h"
 
 namespace Eigen {
-template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-class FFTExpr : public DenseBase<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>> {
+template <typename Derived, typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+class FFTExprImpl : public DenseBase<Derived> {
  public:
-  using Derived = FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>;
   using Base = DenseBase<Derived>;
   using PlainObject = typename internal::traits<Derived>::PlainObject;
 
   EIGEN_DENSE_PUBLIC_INTERFACE(Derived)
 
-  enum {
+  enum FFTTraits {
     HalfSpectrumEnabled = internal::traits<Derived>::HalfSpectrumEnabled,
-    R2CHalfSpectrum = internal::traits<Derived>::R2CHalfSpectrum
+    R2CHalfSpectrum = internal::traits<Derived>::R2CHalfSpectrum,
+    FFTSizeAtCompileTime = internal::traits<Derived>::FFTSizeAtCompileTime,
+    FFTRowsAtCompileTime = internal::traits<Derived>::FFTRowsAtCompileTime,
+    FFTColsAtCompileTime = internal::traits<Derived>::FFTColsAtCompileTime,
   };
 
-  explicit FFTExpr(const RhsType& rhs) : m_rhs(rhs), m_rows(RowsAtCompileTime), m_cols(ColsAtCompileTime) {
+  template <typename InputType>
+  explicit FFTExprImpl(const InputType& rhs)
+      : m_rhs(rhs.derived()),
+        m_rows(RowsAtCompileTime),
+        m_cols(ColsAtCompileTime),
+        _nfft(FFTSizeAtCompileTime),
+        _nfft0(FFTRowsAtCompileTime),
+        _nfft1(FFTColsAtCompileTime) {
     // The output dimensions of an inverse C2R FFT with the RHS being only the symmetric half spectrum
     // cannot be determined solely from the RHS dimensions, hence this constructor is invalid for this case
     EIGEN_STATIC_ASSERT(
-        (RowsAtCompileTime != Dynamic && ColsAtCompileTime != Dynamic) ||
+        (FFTRowsAtCompileTime != Dynamic && FFTColsAtCompileTime != Dynamic) ||
             (Direction || !(static_cast<bool>(HalfSpectrumEnabled))),
         WHEN_HALFSPECTRUM_IS_ENABLED_YOU_NEED_TO_SPECIFY_FFT_DIMENSIONS_WHEN_CALLING_FFT_INV_WITH_ONE_ARGUMENT)
   }
 
-  explicit FFTExpr(const RhsType& rhs, const Index nfft)
-      : m_rhs(rhs),
-        m_rows(RowsAtCompileTime == Dynamic ? (R2CHalfSpectrum ? nfft / 2 + 1 : nfft) : Index(RowsAtCompileTime)),
-        m_cols(ColsAtCompileTime == Dynamic ? (R2CHalfSpectrum ? nfft / 2 + 1 : nfft) : Index(ColsAtCompileTime)) {
+  template <typename InputType>
+  explicit FFTExprImpl(const InputType& rhs, const StorageIndex nfft)
+      : m_rhs(rhs.derived()),
+        m_rows(RowsAtCompileTime == Dynamic ? (R2CHalfSpectrum ? nfft / 2 + 1 : nfft)
+                                            : StorageIndex(RowsAtCompileTime)),
+        m_cols(ColsAtCompileTime == Dynamic ? (R2CHalfSpectrum ? nfft / 2 + 1 : nfft)
+                                            : StorageIndex(ColsAtCompileTime)),
+        _nfft(nfft),
+        _nfft0(nfft),
+        _nfft1(1) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(Derived)
     eigen_assert(nfft >= 0);
   }
 
-  explicit FFTExpr(const RhsType& rhs, const Index nfft0, const Index nfft1)
-      : m_rhs(rhs), m_rows(R2CHalfSpectrum ? nfft0 / 2 + 1 : nfft0), m_cols(nfft1) {
+  template <typename InputType>
+  explicit FFTExprImpl(const InputType& rhs, const StorageIndex nfft0, const StorageIndex nfft1)
+      : m_rhs(rhs.derived()),
+        m_rows(R2CHalfSpectrum ? nfft0 / 2 + 1 : nfft0),
+        m_cols(nfft1),
+        _nfft(nfft0 * nfft1),
+        _nfft0(nfft0),
+        _nfft1(nfft1) {
     eigen_assert(m_rows.value() >= 0 && (RowsAtCompileTime == Dynamic || RowsAtCompileTime == m_rows.value()) &&
                  m_cols >= 0 && (ColsAtCompileTime == Dynamic || ColsAtCompileTime == m_cols.value()));
   }
 
-  EIGEN_CONSTEXPR Index rows() const EIGEN_NOEXCEPT {
+  EIGEN_CONSTEXPR StorageIndex rows() const EIGEN_NOEXCEPT {
     return m_rows.value() == Dynamic ? (R2CHalfSpectrum ? m_rhs.rows() / 2 + 1 : m_rhs.rows()) : m_rows.value();
   }
 
-  EIGEN_CONSTEXPR Index cols() const EIGEN_NOEXCEPT {
+  EIGEN_CONSTEXPR StorageIndex cols() const EIGEN_NOEXCEPT {
     return m_cols.value() == Dynamic ? m_rhs.cols() : m_cols.value();
+  }
+
+  EIGEN_CONSTEXPR StorageIndex nfft() const EIGEN_NOEXCEPT {
+    return _nfft.value() == Dynamic ? m_rhs.size() : _nfft.value();
+  }
+
+  EIGEN_CONSTEXPR StorageIndex nfft0() const EIGEN_NOEXCEPT {
+    return _nfft0.value() == Dynamic ? m_rhs.rows() : _nfft0.value();
+  }
+
+  EIGEN_CONSTEXPR StorageIndex nfft1() const EIGEN_NOEXCEPT {
+    return _nfft1.value() == Dynamic ? m_rhs.cols() : _nfft1.value();
   }
 
   const RhsType& rhs() const { return m_rhs; }
 
  protected:
   const typename internal::ref_selector<RhsType>::type m_rhs;
-  const internal::variable_if_dynamic<Index, RowsAtCompileTime> m_rows;
-  const internal::variable_if_dynamic<Index, ColsAtCompileTime> m_cols;
+  const internal::variable_if_dynamic<StorageIndex, RowsAtCompileTime> m_rows;
+  const internal::variable_if_dynamic<StorageIndex, ColsAtCompileTime> m_cols;
+  const internal::variable_if_dynamic<StorageIndex, FFTSizeAtCompileTime> _nfft;
+  const internal::variable_if_dynamic<StorageIndex, FFTRowsAtCompileTime> _nfft0;
+  const internal::variable_if_dynamic<StorageIndex, FFTColsAtCompileTime> _nfft1;
+};
+
+template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+class FFTExpr : public FFTExprImpl<FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>, LhsType, RhsType,
+                                   Options, Direction, NFFT0, NFFT1> {
+ public:
+  using Base = FFTExprImpl<FFTExpr, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
+  using Base::Base;
 };
 
 namespace internal {
-/** \internal
- * \brief Traits for FFT Expression based only on the RHS type
- * Defaults to complex output (i.e. no C2R transformations)
- */
-template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct traits<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>> {
-  using PlainRhsType = typename RhsType::PlainObject;
-  using PlainRhsTraits = traits<PlainRhsType>;
 
-  using StorageKind = typename PlainRhsType::StorageKind;
-  using XprKind = typename PlainRhsTraits::XprKind;
-  using StorageIndex = typename PlainRhsType::StorageIndex;
-  using RealScalar = typename PlainRhsType::RealScalar;
-  using Scalar = typename std::complex<RealScalar>;
-
-  enum FFTOptionTraits {
-    HalfSpectrumEnabled = (Options & FFTOption::HalfSpectrum),
-    R2C = !NumTraits<typename RhsType::Scalar>::IsComplex,
-    R2CHalfSpectrum = HalfSpectrumEnabled && R2C,
-  };
-
-  enum CompileTimeTraits {
-    Flags = PlainRhsTraits::Flags,
-    RowsAtCompileTime = NFFT0 == Dynamic ? (PlainRhsTraits::RowsAtCompileTime == Dynamic
-                                                ? Dynamic
-                                                : (R2CHalfSpectrum ? PlainRhsTraits::RowsAtCompileTime / 2 + 1
-                                                                   : PlainRhsTraits::RowsAtCompileTime))
-                                         : (R2CHalfSpectrum ? NFFT0 / 2 + 1 : NFFT0),
-    ColsAtCompileTime = NFFT1 == Dynamic ? PlainRhsTraits::ColsAtCompileTime : NFFT1,
-    MaxRowsAtCompileTime = RowsAtCompileTime,
-    MaxColsAtCompileTime = ColsAtCompileTime
-  };
-
-  // Can also be Array type
-  using PlainObject =
-      typename plain_matrix_type_dense<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>, XprKind, Flags>::type;
-
-  enum DerivedCompileTimeTraits {
-    InnerStrideAtCompileTime = traits<PlainObject>::InnerStrideAtCompileTime,
-    OuterStrideAtCompileTime = traits<PlainObject>::InnerStrideAtCompileTime
-  };
-  // TODO: sanity check for NFFT args vs RhsType
+template <typename RhsType>
+struct fft_dst_default_type {
+  using type = typename plain_matrix_type_dense<fft_dst_default_type<RhsType>, typename traits<RhsType>::XprKind,
+                                                RhsType::Flags>::type;
 };
 
-template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct evaluator<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>>
-    : evaluator<typename FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>::PlainObject> {
-  using XprType = FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>;
+template <typename RhsType>
+struct traits<fft_dst_default_type<RhsType>> : traits<RhsType> {
+  using Scalar = std::complex<typename RhsType::RealScalar>;
+  enum {
+    RowsAtCompileTime = Dynamic,
+    ColsAtCompileTime = Dynamic,
+    MaxRowsAtCompileTime = Dynamic,
+    MaxColsATCompileTime = Dynamic,
+  };
+};
+
+template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct traits<FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
+    : fft_traits<LhsType, RhsType, Options, Direction, NFFT0, NFFT1> {
+  using Base = fft_traits<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
+  using typename Base::DstScalar;
+  using typename Base::RealScalar;
+  using typename Base::SrcScalar;
+
+  using Base::has_opt;
+
+  using StorageKind = typename LhsType::StorageKind;
+  using XprKind = typename traits<LhsType>::XprKind;
+  using StorageIndex = typename LhsType::StorageIndex;
+  using Scalar = DstScalar;
+
+  enum CompileTimeTraits {
+    Flags = LhsType::Flags,
+    RowsAtCompileTime = Base::DstAllocRowsAtCompileTime,
+    ColsAtCompileTime = Base::FFTColsAtCompileTime,
+    MaxRowsAtCompileTime = RowsAtCompileTime,
+    MaxColsAtCompileTime = ColsAtCompileTime,
+    InnerStrideAtCompileTime = LhsType::InnerStrideAtCompileTime,
+    OuterStrideAtCompileTime = LhsType::OuterStrideAtCompileTime,
+  };
+
+  using PlainObject =
+      typename internal::plain_matrix_type_dense<FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>, XprKind,
+                                                 Flags>::type;
+};
+
+template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct evaluator<FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
+    : evaluator<typename FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::PlainObject> {
+  using XprType = FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
   using PlainObject = typename XprType::PlainObject;
   using Base = evaluator<PlainObject>;
 
@@ -125,7 +173,120 @@ struct evaluator<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>>
     using Impl = typename internal::fft_impl_selector<PlainObject, RhsType, Options, Direction, NFFT0, NFFT1>::type;
 
     internal::construct_at<Base>(this, m_result);
-    Impl(m_result, fft_expr.rhs()).compute();
+    Impl(m_result, fft_expr.rhs(), fft_expr.nfft0(), fft_expr.nfft1()).compute();
+  }
+
+ protected:
+  PlainObject m_result;
+};
+
+template <typename DstXprType, typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0,
+          Index NFFT1>
+struct Assignment<DstXprType, FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>,
+                  internal::assign_op<typename DstXprType::Scalar,
+                                      typename FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::Scalar>,
+                  Dense2Dense> {
+  using SrcXprType = FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
+  static void run(DstXprType& dst, const SrcXprType& src,
+                  const internal::assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>&) {
+    using Impl = typename internal::fft_impl_selector<DstXprType, RhsType, Options, Direction, NFFT0, NFFT1>::type;
+    Impl(dst, src.rhs(), src.nfft0(), src.nfft1()).compute();
+  }
+};
+}  // namespace internal
+
+template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+class FFTExprUnknownLhs : public FFTExprImpl<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>,
+                                             typename internal::fft_dst_default_type<RhsType>::type, RhsType, Options,
+                                             Direction, NFFT0, NFFT1> {
+ public:
+  using Base = FFTExprImpl<FFTExprUnknownLhs, typename internal::fft_dst_default_type<RhsType>::type, RhsType, Options,
+                           Direction, NFFT0, NFFT1>;
+  using Base::Base;
+};
+
+namespace internal {
+template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct traits<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>> {
+  using DefaultLhsType = typename internal::fft_dst_default_type<RhsType>::type;
+  using DefaultLHSTraits = traits<DefaultLhsType>;
+
+  using StorageKind = typename DefaultLhsType::StorageKind;
+  using XprKind = typename DefaultLHSTraits::XprKind;
+  using StorageIndex = typename DefaultLhsType::StorageIndex;
+  using Scalar = typename DefaultLhsType::Scalar;
+  using RealScalar = typename DefaultLhsType::RealScalar;
+
+  enum FFTOptionTraits {
+    HalfSpectrumEnabled = (Options & FFTOption::HalfSpectrum),
+    R2C = !NumTraits<typename RhsType::Scalar>::IsComplex,
+    Forward = Direction,
+    Inverse = !Direction,
+    R2CHalfSpectrum = HalfSpectrumEnabled && R2C,
+    InvHalfSpectrum = HalfSpectrumEnabled && Inverse,
+  };
+  EIGEN_STATIC_ASSERT((R2C && Forward) || !R2C, YOU_CALLED_A_FFT_ON_INVALID_SCALAR_TYPES)
+
+  enum FFTDimensions {
+    FFTRowsAtCompileTime = (NFFT0 != Dynamic)                                            ? NFFT0
+                           : (RhsType::RowsAtCompileTime != Dynamic && !InvHalfSpectrum) ? RhsType::RowsAtCompileTime
+                                                                                         : Dynamic,
+    FFTColsAtCompileTime = (NFFT1 != Dynamic)                        ? NFFT1
+                           : (RhsType::ColsAtCompileTime != Dynamic) ? RhsType::ColsAtCompileTime
+                                                                     : Dynamic,
+    FFT2DSizeAtCompileTime = (FFTRowsAtCompileTime != Dynamic && FFTColsAtCompileTime != Dynamic)
+                                 ? FFTRowsAtCompileTime * FFTColsAtCompileTime
+                                 : Dynamic,
+    FFT1DSizeAtCompileTime = (NFFT0 != Dynamic)                                            ? NFFT0
+                             : (RhsType::SizeAtCompileTime != Dynamic && !InvHalfSpectrum) ? RhsType::SizeAtCompileTime
+                                                                                           : Dynamic,
+    FFT1D = NFFT0 == 1 || NFFT1 == 1 || RhsType::IsVectorAtCompileTime,
+    FFT2D = !FFT1D,
+    FFTSizeAtCompileTime = FFT1D ? FFT1DSizeAtCompileTime : FFT2DSizeAtCompileTime,
+  };
+  EIGEN_STATIC_ASSERT(internal::check_implication(FFT2D && !InvHalfSpectrum,
+                                                  RhsType::RowsAtCompileTime == Dynamic ||
+                                                      FFTRowsAtCompileTime == RhsType::RowsAtCompileTime),
+                      INVALID_2D_FFT_ROW_DIMENSIONS_FOR_DESTINATION)
+  EIGEN_STATIC_ASSERT(internal::check_implication(FFT2D, RhsType::ColsAtCompileTime == Dynamic ||
+                                                             FFTColsAtCompileTime == RhsType::ColsAtCompileTime),
+                      INVALID_2D_FFT_COLUMN_DIMENSIONS_FOR_DESTINATION)
+  EIGEN_STATIC_ASSERT(internal::check_implication(FFT1D && !InvHalfSpectrum,
+                                                  RhsType::SizeAtCompileTime == Dynamic ||
+                                                      FFTSizeAtCompileTime == RhsType::SizeAtCompileTime),
+                      INVALID_1D_FFT_DIMENSIONS_FOR_DESTINATION)
+
+  enum CompileTimeTraits {
+    Flags = DefaultLhsType::Flags,
+    RowsAtCompileTime = (FFTRowsAtCompileTime != Dynamic)
+                            ? (R2CHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime)
+                            : Dynamic,
+    ColsAtCompileTime = FFTColsAtCompileTime,
+    MaxRowsAtCompileTime = RowsAtCompileTime,
+    MaxColsAtCompileTime = ColsAtCompileTime,
+    InnerStrideAtCompileTime = DefaultLhsType::InnerStrideAtCompileTime,
+    OuterStrideAtCompileTime = DefaultLhsType::OuterStrideAtCompileTime,
+  };
+
+  // Can also be Array type
+  using PlainObject = typename plain_matrix_type_dense<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>,
+                                                       XprKind, Flags>::type;
+};
+
+template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct evaluator<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>>
+    : evaluator<typename FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>::PlainObject> {
+  using XprType = FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>;
+  using PlainObject = typename XprType::PlainObject;
+  using Base = evaluator<PlainObject>;
+
+  enum { Flags = Base::Flags | EvalBeforeNestingBit, CoeffReadCost = HugeCost, Alignment = Base::Alignment };
+
+  explicit evaluator(const XprType& fft_expr) : m_result(fft_expr.rows(), fft_expr.cols()) {
+    using Impl = typename internal::fft_impl_selector<PlainObject, RhsType, Options, Direction, NFFT0, NFFT1>::type;
+
+    internal::construct_at<Base>(this, m_result);
+    Impl(m_result, fft_expr.rhs(), fft_expr.nfft0(), fft_expr.nfft1()).compute();
   }
 
  protected:
@@ -133,13 +294,15 @@ struct evaluator<FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>>
 };
 
 template <typename DstXprType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct Assignment<DstXprType, FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>,
-                  internal::assign_op<typename DstXprType::Scalar, typename RhsType::Scalar>, Dense2Dense> {
-  using SrcXprType = FFTExpr<RhsType, Options, Direction, NFFT0, NFFT1>;
+struct Assignment<DstXprType, FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>,
+                  internal::assign_op<typename DstXprType::Scalar,
+                                      typename FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>::Scalar>,
+                  Dense2Dense> {
+  using SrcXprType = FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>;
   static void run(DstXprType& dst, const SrcXprType& src,
-                  const internal::assign_op<typename DstXprType::Scalar, typename RhsType::Scalar>&) {
+                  const internal::assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>&) {
     using Impl = typename internal::fft_impl_selector<DstXprType, RhsType, Options, Direction, NFFT0, NFFT1>::type;
-    Impl(dst, src.rhs()).compute();
+    Impl(dst, src.rhs(), src.nfft0(), src.nfft1()).compute();
   }
 };
 }  // namespace internal
