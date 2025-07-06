@@ -73,17 +73,30 @@ class FFTImplBase {
   EIGEN_CONSTEXPR Derived& derived() { return *static_cast<Derived*>(this); }
   EIGEN_CONSTEXPR const Derived& derived() const { return *static_cast<const Derived*>(this); }
 
-  explicit FFTImplBase(DstType& lhs, const SrcType& rhs, const Index nfft0 = FFTRowsAtCompileTime,
-                       const Index nfft1 = FFTColsAtCompileTime)
+  explicit FFTImplBase(DstType& lhs, const SrcType& rhs)
       : m_dst(lhs),
         m_src(rhs),
-        _nfft((nfft0 == Dynamic || nfft1 == Dynamic) ? Dynamic : nfft0 * nfft1),
-        _nfft0(nfft0),
-        _nfft1(nfft1) {
-    eigen_assert(
-        internal::check_implication(nfft0 >= 0, (FFTRowsAtCompileTime == Dynamic || FFTRowsAtCompileTime == nfft0)));
-    eigen_assert(
-        internal::check_implication(nfft1 >= 0, (FFTColsAtCompileTime == Dynamic || FFTColsAtCompileTime == nfft1)));
+        _nfft((FFTRowsAtCompileTime == Dynamic || FFTColsAtCompileTime == Dynamic)
+                  ? Dynamic
+                  : FFTRowsAtCompileTime * FFTColsAtCompileTime),
+        _nfft0(FFTRowsAtCompileTime == Dynamic ? Dynamic : FFTRowsAtCompileTime),
+        _nfft1(FFTColsAtCompileTime == Dynamic ? Dynamic : FFTColsAtCompileTime) {}
+
+  explicit FFTImplBase(DstType& lhs, const SrcType& rhs, const Index nfft)
+      : m_dst(lhs),
+        m_src(rhs),
+        _nfft(nfft),
+        _nfft0(FFTRowsAtCompileTime == 1 ? 1 : nfft),
+        _nfft1(FFTColsAtCompileTime == 1 ? 1 : nfft) {
+    EIGEN_STATIC_ASSERT_VECTOR_ONLY(DstType);
+    EIGEN_STATIC_ASSERT_VECTOR_ONLY(SrcType);
+    eigen_assert(nfft >= 0 && (FFTSizeAtCompileTime == Dynamic || FFTSizeAtCompileTime == nfft));
+  }
+
+  explicit FFTImplBase(DstType& lhs, const SrcType& rhs, const Index nfft0, const Index nfft1)
+      : m_dst(lhs), m_src(rhs), _nfft(nfft0 * nfft1), _nfft0(nfft0), _nfft1(nfft1) {
+    eigen_assert(nfft0 >= 0 && (FFTRowsAtCompileTime == Dynamic || FFTRowsAtCompileTime == nfft0));
+    eigen_assert(nfft1 >= 0 && (FFTColsAtCompileTime == Dynamic || FFTColsAtCompileTime == nfft1));
   }
 
   EIGEN_CONSTEXPR Index nfft() const EIGEN_NOEXCEPT {
@@ -236,62 +249,89 @@ struct fft_traits {
 
   // Determine FFT Dimensions
   enum FFTDimensions {
-    FFTRowsAtCompileTime = R2C ? (get_first_fixed_size(NFFT0, SrcType::RowsAtCompileTime))
-                           : C2R
-                               ? (get_first_fixed_size(NFFT0, DstType::RowsAtCompileTime))
-                               : (get_first_fixed_size(NFFT0, DstType::RowsAtCompileTime, SrcType::RowsAtCompileTime)),
-    FFTColsAtCompileTime = get_first_fixed_size(NFFT1, DstType::ColsAtCompileTime, SrcType::ColsAtCompileTime),
-    FFT2DSizeAtCompileTime = (FFTRowsAtCompileTime != Dynamic && FFTColsAtCompileTime != Dynamic)
-                                 ? FFTRowsAtCompileTime * FFTColsAtCompileTime
-                                 : Dynamic,
-    FFT1DSizeAtCompileTime =
-        R2C   ? (get_first_fixed_size(NFFT0, SrcType::SizeAtCompileTime))
-        : C2R ? (get_first_fixed_size(NFFT0, DstType::SizeAtCompileTime))
-              : (get_first_fixed_size(NFFT0, DstType::SizeAtCompileTime, SrcType::SizeAtCompileTime)),
+    IsRowVector = NFFT0 == 1 || SrcType::RowsAtCompileTime == 1,
+    IsColVector = NFFT1 == 1 || SrcType::ColsAtCompileTime == 1,
     FFT1D = NFFT0 == 1 || NFFT1 == 1 || SrcType::IsVectorAtCompileTime || DstType::IsVectorAtCompileTime,
     FFT2D = !FFT1D,
-    FFTSizeAtCompileTime = FFT1D ? FFT1DSizeAtCompileTime : FFT2DSizeAtCompileTime,
+    FFT2DRowsAtCompileTime =
+        R2C   ? (get_first_fixed_size(NFFT0, SrcType::RowsAtCompileTime))
+        : C2R ? (get_first_fixed_size(NFFT0, DstType::RowsAtCompileTime))
+              : (get_first_fixed_size(NFFT0, DstType::RowsAtCompileTime, SrcType::RowsAtCompileTime)),
+    FFT2DColsAtCompileTime = get_first_fixed_size(NFFT1, DstType::ColsAtCompileTime, SrcType::ColsAtCompileTime),
+    FFT1DRowsAtCompileTime =
+        IsRowVector ? 1
+        : R2C       ? (get_first_fixed_size(NFFT0, SrcType::RowsAtCompileTime))
+        : C2R       ? (get_first_fixed_size(NFFT0, DstType::RowsAtCompileTime))
+                    : (get_first_fixed_size(NFFT0, DstType::RowsAtCompileTime, SrcType::RowsAtCompileTime)),
+    // For column vectors, NFFT0 can also represent the size of the vector
+    FFT1DColsAtCompileTime =
+        IsColVector ? 1
+        : R2C       ? (get_first_fixed_size(NFFT1, NFFT0, SrcType::ColsAtCompileTime))
+        : C2R       ? (get_first_fixed_size(NFFT1, NFFT0, DstType::ColsAtCompileTime))
+                    : (get_first_fixed_size(NFFT1, NFFT0, DstType::ColsAtCompileTime, SrcType::ColsAtCompileTime)),
+    FFTRowsAtCompileTime = FFT1D ? FFT1DRowsAtCompileTime : FFT2DRowsAtCompileTime,
+    FFTColsAtCompileTime = FFT1D ? FFT1DColsAtCompileTime : FFT2DColsAtCompileTime,
+    FFTSizeAtCompileTime = (FFTRowsAtCompileTime != Dynamic && FFTColsAtCompileTime != Dynamic)
+                               ? FFTRowsAtCompileTime * FFTColsAtCompileTime
+                               : Dynamic,
   };
 
   enum DstDimensions {
-    DstAllocRowsAtCompileTime = FFTRowsAtCompileTime != Dynamic
-                                    ? (R2CHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime)
-                                    : Dynamic,
-    DstAlloc1DSizeAtCompileTime = FFT1DSizeAtCompileTime != Dynamic
-                                      ? (R2CHalfSpectrum ? FFT1DSizeAtCompileTime / 2 + 1 : FFT1DSizeAtCompileTime)
+    DstAlloc2DRowsAtCompileTime = FFTRowsAtCompileTime != Dynamic
+                                      ? (R2CHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime)
                                       : Dynamic,
-    DstAlloc2DSizeAtCompileTime =
-        FFT2DSizeAtCompileTime != Dynamic ? DstAllocRowsAtCompileTime * FFTColsAtCompileTime : Dynamic,
-    DstAllocSizeAtCompileTime = FFT1D ? DstAlloc1DSizeAtCompileTime : DstAlloc2DSizeAtCompileTime,
+    DstAlloc2DColsAtCompileTime = FFTColsAtCompileTime != Dynamic ? FFTColsAtCompileTime : Dynamic,
+    DstAlloc1DRowsAtCompileTime = IsRowVector ? 1
+                                  : (FFTRowsAtCompileTime != Dynamic)
+                                      ? R2CHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime
+                                      : Dynamic,
+    DstAlloc1DColsAtCompileTime = IsColVector ? 1
+                                  : (FFTColsAtCompileTime != Dynamic)
+                                      ? R2CHalfSpectrum ? FFTColsAtCompileTime / 2 + 1 : FFTColsAtCompileTime
+                                      : Dynamic,
+    DstAllocRowsAtCompileTime = FFT1D ? DstAlloc1DRowsAtCompileTime : DstAlloc2DRowsAtCompileTime,
+    DstAllocColsAtCompileTime = FFT1D ? DstAlloc1DColsAtCompileTime : DstAlloc2DColsAtCompileTime,
+    DstAllocSizeAtCompileTime = (DstAllocRowsAtCompileTime != Dynamic && DstAllocColsAtCompileTime != Dynamic)
+                                    ? DstAllocRowsAtCompileTime * DstAllocColsAtCompileTime
+                                    : Dynamic,
   };
-  EIGEN_STATIC_ASSERT(FFT1D || DstType::RowsAtCompileTime == Dynamic ||
+
+  EIGEN_STATIC_ASSERT(FFT1D || DstType::RowsAtCompileTime == Dynamic || DstAllocRowsAtCompileTime == Dynamic ||
                           DstType::RowsAtCompileTime == DstAllocRowsAtCompileTime,
                       INVALID_2D_FFT_ROW_DIMENSIONS_FOR_DESTINATION)
-  EIGEN_STATIC_ASSERT(FFT1D || DstType::ColsAtCompileTime == Dynamic ||
+  EIGEN_STATIC_ASSERT(FFT1D || DstType::ColsAtCompileTime == Dynamic || DstAllocColsAtCompileTime == Dynamic ||
                           DstType::ColsAtCompileTime == FFTColsAtCompileTime,
                       INVALID_2D_FFT_COLUMN_DIMENSIONS_FOR_DESTINATION)
-  EIGEN_STATIC_ASSERT(FFT2D || DstType::SizeAtCompileTime == Dynamic ||
+  EIGEN_STATIC_ASSERT(FFT2D || DstType::SizeAtCompileTime == Dynamic || DstAllocSizeAtCompileTime == Dynamic ||
                           DstType::SizeAtCompileTime == DstAllocSizeAtCompileTime,
                       INVALID_1D_FFT_DIMENSIONS_FOR_DESTINATION)
 
   enum SrcDimensions {
-    SrcAllocRowsAtCompileTime = FFTRowsAtCompileTime != Dynamic
-                                    ? (C2RHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime)
-                                    : Dynamic,
-    SrcAlloc1DSizeAtCompileTime = FFT1DSizeAtCompileTime != Dynamic
-                                      ? (C2RHalfSpectrum ? FFT1DSizeAtCompileTime / 2 + 1 : FFT1DSizeAtCompileTime)
+    SrcAlloc2DRowsAtCompileTime = FFTRowsAtCompileTime != Dynamic
+                                      ? (C2RHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime)
                                       : Dynamic,
-    SrcAlloc2DSizeAtCompileTime =
-        FFT2DSizeAtCompileTime != Dynamic ? SrcAllocRowsAtCompileTime * FFTColsAtCompileTime : Dynamic,
-    SrcAllocSizeAtCompileTime = FFT1D ? SrcAlloc1DSizeAtCompileTime : SrcAlloc2DSizeAtCompileTime
+    SrcAlloc2DColsAtCompileTime = FFTColsAtCompileTime != Dynamic ? FFTColsAtCompileTime : Dynamic,
+    SrcAlloc1DRowsAtCompileTime = IsRowVector ? 1
+                                  : (FFTRowsAtCompileTime != Dynamic)
+                                      ? C2RHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime
+                                      : Dynamic,
+    SrcAlloc1DColsAtCompileTime = IsColVector ? 1
+                                  : (FFTColsAtCompileTime != Dynamic)
+                                      ? C2RHalfSpectrum ? FFTColsAtCompileTime / 2 + 1 : FFTColsAtCompileTime
+                                      : Dynamic,
+    SrcAllocRowsAtCompileTime = FFT1D ? SrcAlloc1DRowsAtCompileTime : SrcAlloc2DRowsAtCompileTime,
+    SrcAllocColsAtCompileTime = FFT1D ? SrcAlloc1DColsAtCompileTime : SrcAlloc2DColsAtCompileTime,
+    SrcAllocSizeAtCompileTime = (SrcAllocRowsAtCompileTime != Dynamic && SrcAllocColsAtCompileTime != Dynamic)
+                                    ? SrcAllocRowsAtCompileTime * SrcAllocColsAtCompileTime
+                                    : Dynamic,
   };
-  EIGEN_STATIC_ASSERT(FFT1D || SrcType::RowsAtCompileTime == Dynamic ||
+  EIGEN_STATIC_ASSERT(FFT1D || SrcType::RowsAtCompileTime == Dynamic || SrcAllocRowsAtCompileTime == Dynamic ||
                           SrcType::RowsAtCompileTime == SrcAllocRowsAtCompileTime,
                       INVALID_2D_FFT_ROW_DIMENSIONS_FOR_SOURCE)
-  EIGEN_STATIC_ASSERT(FFT1D || SrcType::ColsAtCompileTime == Dynamic ||
+  EIGEN_STATIC_ASSERT(FFT1D || SrcType::ColsAtCompileTime == Dynamic || SrcAllocColsAtCompileTime == Dynamic ||
                           SrcType::ColsAtCompileTime == FFTColsAtCompileTime,
                       INVALID_2D_FFT_COLUMN_DIMENSIONS_FOR_SOURCE)
-  EIGEN_STATIC_ASSERT(FFT2D || SrcType::SizeAtCompileTime == Dynamic ||
+  EIGEN_STATIC_ASSERT(FFT2D || SrcType::SizeAtCompileTime == Dynamic || SrcAllocSizeAtCompileTime == Dynamic ||
                           SrcType::SizeAtCompileTime == SrcAllocSizeAtCompileTime,
                       INVALID_1D_FFT_DIMENSIONS_FOR_SOURCE)
 };

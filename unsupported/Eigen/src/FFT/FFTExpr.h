@@ -49,13 +49,15 @@ class FFTExprImpl : public DenseBase<Derived> {
   template <typename InputType>
   explicit FFTExprImpl(const InputType& rhs, const StorageIndex nfft)
       : m_rhs(rhs.derived()),
-        m_rows(RowsAtCompileTime == Dynamic ? (R2CHalfSpectrum ? nfft / 2 + 1 : nfft)
-                                            : StorageIndex(RowsAtCompileTime)),
-        m_cols(ColsAtCompileTime == Dynamic ? (R2CHalfSpectrum ? nfft / 2 + 1 : nfft)
-                                            : StorageIndex(ColsAtCompileTime)),
+        m_rows(RowsAtCompileTime == 1 ? 1
+               : R2CHalfSpectrum      ? nfft / 2 + 1
+                                      : nfft),
+        m_cols(ColsAtCompileTime == 1 ? 1
+               : R2CHalfSpectrum      ? nfft / 2 + 1
+                                      : nfft),
         _nfft(nfft),
-        _nfft0(nfft),
-        _nfft1(1) {
+        _nfft0(RowsAtCompileTime == 1 ? 1 : nfft),
+        _nfft1(ColsAtCompileTime == 1 ? 1 : nfft) {
     EIGEN_STATIC_ASSERT_VECTOR_ONLY(Derived)
     eigen_assert(nfft >= 0);
   }
@@ -228,21 +230,31 @@ struct traits<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>> {
   EIGEN_STATIC_ASSERT((R2C && Forward) || !R2C, YOU_CALLED_A_FFT_ON_INVALID_SCALAR_TYPES)
 
   enum FFTDimensions {
-    FFTRowsAtCompileTime = (NFFT0 != Dynamic)                                            ? NFFT0
-                           : (RhsType::RowsAtCompileTime != Dynamic && !InvHalfSpectrum) ? RhsType::RowsAtCompileTime
-                                                                                         : Dynamic,
-    FFTColsAtCompileTime = (NFFT1 != Dynamic)                        ? NFFT1
-                           : (RhsType::ColsAtCompileTime != Dynamic) ? RhsType::ColsAtCompileTime
-                                                                     : Dynamic,
-    FFT2DSizeAtCompileTime = (FFTRowsAtCompileTime != Dynamic && FFTColsAtCompileTime != Dynamic)
-                                 ? FFTRowsAtCompileTime * FFTColsAtCompileTime
-                                 : Dynamic,
-    FFT1DSizeAtCompileTime = (NFFT0 != Dynamic)                                            ? NFFT0
-                             : (RhsType::SizeAtCompileTime != Dynamic && !InvHalfSpectrum) ? RhsType::SizeAtCompileTime
-                                                                                           : Dynamic,
+    IsRowVector = NFFT0 == 1 || RhsType::RowsAtCompileTime == 1,
+    IsColVector = NFFT1 == 1 || RhsType::ColsAtCompileTime == 1,
     FFT1D = NFFT0 == 1 || NFFT1 == 1 || RhsType::IsVectorAtCompileTime,
     FFT2D = !FFT1D,
-    FFTSizeAtCompileTime = FFT1D ? FFT1DSizeAtCompileTime : FFT2DSizeAtCompileTime,
+    FFT2DRowsAtCompileTime = (NFFT0 != Dynamic)                                            ? NFFT0
+                             : (RhsType::RowsAtCompileTime != Dynamic && !InvHalfSpectrum) ? RhsType::RowsAtCompileTime
+                                                                                           : Dynamic,
+    FFT2DColsAtCompileTime = (NFFT1 != Dynamic)                        ? NFFT1
+                             : (RhsType::ColsAtCompileTime != Dynamic) ? RhsType::ColsAtCompileTime
+                                                                       : Dynamic,
+    FFT1DRowsAtCompileTime = IsRowVector                                                   ? 1
+                             : (NFFT0 != Dynamic)                                          ? NFFT0
+                             : (RhsType::RowsAtCompileTime != Dynamic && !InvHalfSpectrum) ? RhsType::RowsAtCompileTime
+                                                                                           : Dynamic,
+    // For column vectors, NFFT0 can also represent the size of the vector
+    FFT1DColsAtCompileTime = IsColVector                                                   ? 1
+                             : (NFFT1 != Dynamic)                                          ? NFFT1
+                             : (NFFT0 != Dynamic)                                          ? NFFT0
+                             : (RhsType::ColsAtCompileTime != Dynamic && !InvHalfSpectrum) ? RhsType::ColsAtCompileTime
+                                                                                           : Dynamic,
+    FFTRowsAtCompileTime = FFT1D ? FFT1DRowsAtCompileTime : FFT2DRowsAtCompileTime,
+    FFTColsAtCompileTime = FFT1D ? FFT1DColsAtCompileTime : FFT2DColsAtCompileTime,
+    FFTSizeAtCompileTime = (FFTRowsAtCompileTime != Dynamic && FFTColsAtCompileTime != Dynamic)
+                               ? FFTRowsAtCompileTime * FFTColsAtCompileTime
+                               : Dynamic,
   };
   EIGEN_STATIC_ASSERT(internal::check_implication(FFT2D && !InvHalfSpectrum,
                                                   RhsType::RowsAtCompileTime == Dynamic ||
@@ -256,12 +268,30 @@ struct traits<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>> {
                                                       FFTSizeAtCompileTime == RhsType::SizeAtCompileTime),
                       INVALID_1D_FFT_DIMENSIONS_FOR_DESTINATION)
 
+  enum DstDimensions {
+    DstAlloc2DRowsAtCompileTime = (FFTRowsAtCompileTime != Dynamic)
+                                      ? (R2CHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime)
+                                      : Dynamic,
+    DstAlloc2DColsAtCompileTime = FFTColsAtCompileTime != Dynamic ? FFTColsAtCompileTime : Dynamic,
+    DstAlloc1DRowsAtCompileTime = IsRowVector ? 1
+                                  : (FFTRowsAtCompileTime != Dynamic)
+                                      ? R2CHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime
+                                      : Dynamic,
+    DstAlloc1DColsAtCompileTime = IsColVector ? 1
+                                  : (FFTColsAtCompileTime != Dynamic)
+                                      ? R2CHalfSpectrum ? FFTColsAtCompileTime / 2 + 1 : FFTColsAtCompileTime
+                                      : Dynamic,
+    DstAllocRowsAtCompileTime = FFT1D ? DstAlloc1DRowsAtCompileTime : DstAlloc2DRowsAtCompileTime,
+    DstAllocColsAtCompileTime = FFT1D ? DstAlloc1DColsAtCompileTime : DstAlloc2DColsAtCompileTime,
+    DstAllocSizeAtCompileTime = (DstAllocRowsAtCompileTime != Dynamic && DstAllocColsAtCompileTime != Dynamic)
+                                    ? DstAllocRowsAtCompileTime * DstAllocColsAtCompileTime
+                                    : Dynamic,
+  };
+
   enum CompileTimeTraits {
     Flags = DefaultLhsType::Flags,
-    RowsAtCompileTime = (FFTRowsAtCompileTime != Dynamic)
-                            ? (R2CHalfSpectrum ? FFTRowsAtCompileTime / 2 + 1 : FFTRowsAtCompileTime)
-                            : Dynamic,
-    ColsAtCompileTime = FFTColsAtCompileTime,
+    RowsAtCompileTime = DstAllocRowsAtCompileTime,
+    ColsAtCompileTime = DstAllocColsAtCompileTime,
     MaxRowsAtCompileTime = RowsAtCompileTime,
     MaxColsAtCompileTime = ColsAtCompileTime,
     InnerStrideAtCompileTime = DefaultLhsType::InnerStrideAtCompileTime,
