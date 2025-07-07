@@ -23,27 +23,42 @@ template <typename DstType, typename SrcType, int Options, bool Direction, Index
 class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direction, NFFT0, NFFT1>, DstType, SrcType,
                                      Options, Direction, NFFT0, NFFT1> {
  public:
+  // todo: Make this traits section a macro, should be the same across any FFT Implementation class
   using Derived = PocketFFT<DstType, SrcType, Options, Direction, NFFT0, NFFT1>;
   using Base = FFTImplBase<Derived, DstType, SrcType, Options, Direction, NFFT0, NFFT1>;
   friend class FFTImplBase<Derived, DstType, SrcType, Options, Direction, NFFT0, NFFT1>;
 
-  using Base::C2C;
-  using Base::C2R;
-  using Base::FFT1D;
-  using Base::FFT2D;
-  using Base::FFTTraits;
-  using Base::Forward;
-  using Base::Inverse;
-  using Base::R2C;
+  using FFTTraits = internal::traits<Derived>;
+  using DstScalar = typename FFTTraits::DstScalar;
+  using SrcScalar = typename FFTTraits::SrcScalar;
+  using RealScalar = typename FFTTraits::RealScalar;
+  using ScaleReturnType = typename FFTTraits::ScaleReturnType;
+  using ReflectSpectrumReturnType = typename FFTTraits::ReflectSpectrumReturnType;
 
-  using typename Base::DstScalar;
-  using SrcScalar = typename SrcType::Scalar;
-  using DstRealScalar = typename NumTraits<DstScalar>::Real;
+  enum {
+    C2C = FFTTraits::C2C,
+    C2R = FFTTraits::C2R,
+    R2C = FFTTraits::R2C,
+    R2CHalfSpectrum = FFTTraits::R2CHalfSpectrum,
+    C2RHalfSpectrum = FFTTraits::C2RHalfSpectrum,
+    Forward = FFTTraits::Forward,
+    Inverse = FFTTraits::Inverse,
+    FFTRowsAtCompileTime = FFTTraits::FFTRowsAtCompileTime,
+    FFTColsAtCompileTime = FFTTraits::FFTColsAtCompileTime,
+    FFTSizeAtCompileTime = FFTTraits::FFTSizeAtCompileTime,
+    FFT1D = FFTTraits::FFT1D,
+    FFT2D = FFTTraits::FFT2D,
+    DstAllocRowsAtCompileTime = FFTTraits::DstAllocRowsAtCompileTime,
+    DstAllocSizeAtCompileTime = FFTTraits::DstAllocSizeAtCompileTime,
+    SrcAllocRowsAtCompileTime = FFTTraits::SrcAllocRowsAtCompileTime,
+    SrcAllocSizeAtCompileTime = FFTTraits::SrcAllocSizeAtCompileTime
+  };
 
   // inherit constructors
   using Base::Base;
 
   // Base methods needed - explicitly imported for clarity
+  using Base::allocate;
   using Base::derived;
   using Base::dst;
   using Base::nfft;
@@ -51,8 +66,16 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
   using Base::nfft1;
   using Base::src;
 
+  EIGEN_STRONG_INLINE void run(DstType& dst, const SrcType& src) { this->_run_impl(dst, src.eval()); }
+
+  using Base::compute;
+  using Base::reflectSpectrum;
+  using Base::scale;
+
  protected:
   // protected Base methods - explicitly imported for clarity
+  using Base::_allocate_impl;
+  using Base::_reflect_spectrum_impl;
   using Base::has_opt;
 
   EIGEN_STRONG_INLINE DstType& _scale_impl(DstType& dst) {
@@ -62,23 +85,23 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
 
   // Complex Forward/Inverse Transform cases
   // 1D
-  template <typename SFINAE_T = int, std::enable_if_t<C2C && FFT1D && sizeof(SFINAE_T), int> = 0>
-  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const SrcType& src) {
+  template <typename InputType, typename SFINAE_T = int, std::enable_if_t<C2C && FFT1D && sizeof(SFINAE_T), int> = 0>
+  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const InputType& src) {
     const shape_t shape = {static_cast<size_t>(this->nfft())};
     const shape_t axes = {0};
     const stride_t stride_in = {src.innerStride() * sizeof(SrcScalar)};
     const stride_t stride_out = {dst.innerStride() * sizeof(DstScalar)};
     const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
-    const DstRealScalar scaling_fact =
-        Forward ? static_cast<DstRealScalar>(1.0) : 1.0 / static_cast<DstRealScalar>(this->nfft());
+    const RealScalar scaling_fact =
+        Forward ? static_cast<RealScalar>(1.0) : 1.0 / static_cast<RealScalar>(this->nfft());
     c2c(shape, stride_in, stride_out, axes, Forward, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 
   // 2D
-  template <typename SFINAE_T = int, std::enable_if_t<C2C && FFT2D && sizeof(SFINAE_T), int> = 1>
-  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const SrcType& src) {
+  template <typename InputType, typename SFINAE_T = int, std::enable_if_t<C2C && FFT2D && sizeof(SFINAE_T), int> = 1>
+  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const InputType& src) {
     const shape_t shape = {static_cast<size_t>(this->nfft0()), static_cast<size_t>(this->nfft1())};
     const shape_t axes = {1, 0};
     const stride_t stride_in = {static_cast<ptrdiff_t>(src.rowStride() * sizeof(SrcScalar)),
@@ -87,30 +110,30 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
                                  static_cast<ptrdiff_t>(dst.colStride() * sizeof(DstScalar))};
     const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
-    const DstRealScalar scaling_fact =
-        Forward ? static_cast<DstRealScalar>(1.0) : 1.0 / static_cast<DstRealScalar>(this->nfft());
+    const RealScalar scaling_fact =
+        Forward ? static_cast<RealScalar>(1.0) : 1.0 / static_cast<RealScalar>(this->nfft());
     c2c(shape, stride_in, stride_out, axes, Forward, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 
   // R2C
   // 1D
-  template <typename SFINAE_T = int, std::enable_if_t<R2C && FFT1D && sizeof(SFINAE_T), int> = 2>
-  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const SrcType& src) {
+  template <typename InputType, typename SFINAE_T = int, std::enable_if_t<R2C && FFT1D && sizeof(SFINAE_T), int> = 2>
+  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const InputType& src) {
     const shape_t shape = {static_cast<size_t>(this->nfft())};
     constexpr size_t axis = static_cast<size_t>(0);
     const stride_t stride_in = {src.innerStride() * sizeof(SrcScalar)};
     const stride_t stride_out = {dst.innerStride() * sizeof(DstScalar)};
     const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
-    const DstRealScalar scaling_fact = static_cast<DstRealScalar>(1.0);
+    const RealScalar scaling_fact = static_cast<RealScalar>(1.0);
     r2c(shape, stride_in, stride_out, axis, Forward, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 
   // 2D
-  template <typename SFINAE_T = int, std::enable_if_t<R2C && FFT2D && sizeof(SFINAE_T), int> = 3>
-  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const SrcType& src) {
+  template <typename InputType, typename SFINAE_T = int, std::enable_if_t<R2C && FFT2D && sizeof(SFINAE_T), int> = 3>
+  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const InputType& src) {
     const shape_t shape = {static_cast<size_t>(this->nfft0()), static_cast<size_t>(this->nfft1())};
     const shape_t axes = {1, 0};
     const stride_t stride_in = {static_cast<ptrdiff_t>(src.rowStride() * sizeof(SrcScalar)),
@@ -119,30 +142,30 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
                                  static_cast<ptrdiff_t>(dst.colStride() * sizeof(DstScalar))};
     const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
-    const DstRealScalar scaling_fact = static_cast<DstRealScalar>(1.0);
+    const RealScalar scaling_fact = static_cast<RealScalar>(1.0);
     r2c(shape, stride_in, stride_out, axes, Forward, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 
   // C2R
   // 1D
-  template <typename SFINAE_T = int, std::enable_if_t<C2R && FFT1D && sizeof(SFINAE_T), int> = 4>
-  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const SrcType& src) {
+  template <typename InputType, typename SFINAE_T = int, std::enable_if_t<C2R && FFT1D && sizeof(SFINAE_T), int> = 4>
+  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const InputType& src) {
     const shape_t shape = {static_cast<size_t>(this->nfft())};
     constexpr size_t axis = static_cast<size_t>(0);
     const stride_t stride_in = {src.innerStride() * sizeof(SrcScalar)};
     const stride_t stride_out = {dst.innerStride() * sizeof(DstScalar)};
     const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
-    const DstRealScalar scaling_fact = 1.0 / static_cast<DstRealScalar>(this->nfft());
+    const RealScalar scaling_fact = 1.0 / static_cast<RealScalar>(this->nfft());
     c2r(shape, stride_in, stride_out, axis, Forward, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }
 
   // 2D - TODO: if C2R, we technically don't need the full src matrix, so if hasFlag(FullSpectrum), there's no need to
   // call eval() on the whole src... Maybe worth looking into
-  template <typename SFINAE_T = int, std::enable_if_t<C2R && FFT2D && sizeof(SFINAE_T), int> = 5>
-  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const SrcType& src) {
+  template <typename InputType, typename SFINAE_T = int, std::enable_if_t<C2R && FFT2D && sizeof(SFINAE_T), int> = 5>
+  EIGEN_STRONG_INLINE void _run_impl(DstType& dst, const InputType& src) {
     const shape_t shape = {static_cast<size_t>(this->nfft0()), static_cast<size_t>(this->nfft1())};
     const shape_t axes = {1, 0};
     const stride_t stride_in = {static_cast<ptrdiff_t>(src.rowStride() * sizeof(SrcScalar)),
@@ -151,7 +174,7 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
                                  static_cast<ptrdiff_t>(dst.colStride() * sizeof(DstScalar))};
     const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
-    const DstRealScalar scaling_fact = 1.0 / static_cast<DstRealScalar>(this->nfft());
+    const RealScalar scaling_fact = 1.0 / static_cast<RealScalar>(this->nfft());
     c2r(shape, stride_in, stride_out, axes, Forward, src_p, dst_p, scaling_fact,
         1);  // TODO: 1 is nr of threads, allow in opts
   }

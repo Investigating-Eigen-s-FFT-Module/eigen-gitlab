@@ -46,8 +46,10 @@ using namespace FFTOption;
 template <typename Derived, typename DstType, typename SrcType, int Options, bool Direction, Index NFFT0, Index NFFT1>
 class FFTImplBase {
  public:
-  using FFTTraits = internal::traits<FFTImplBase>;
+  using FFTTraits = internal::traits<Derived>;
   using DstScalar = typename FFTTraits::DstScalar;
+  using ScaleReturnType = typename FFTTraits::ScaleReturnType;
+  using ReflectSpectrumReturnType = typename FFTTraits::ReflectSpectrumReturnType;
 
   enum {
     C2C = FFTTraits::C2C,
@@ -114,10 +116,27 @@ class FFTImplBase {
   const DstType& dst() const { return m_dst; }
   const SrcType& src() const { return m_src; }
 
+  EIGEN_STRONG_INLINE void allocate(DstType& dst) { this->derived()._allocate_impl(dst); }
+
+  // Note: Override this function in derived classes if they need to receive
+  //       different types for dst and src
+  //       (e.g. an evaluated src expression for implementations that operate on the data directly)
+  EIGEN_STRONG_INLINE void run(DstType& dst, const SrcType& src) { this->derived()._run_impl(dst, src); }
+
+  template <typename InputType>
+  EIGEN_STRONG_INLINE ScaleReturnType scale(InputType& dst) {
+    return this->derived()._scale_impl(dst);
+  }
+
+  template <typename InputType>
+  EIGEN_STRONG_INLINE ReflectSpectrumReturnType reflectSpectrum(InputType& dst) {
+    return this->derived()._reflect_spectrum_impl(dst);
+  }
+
   EIGEN_STRONG_INLINE void compute() {
-    this->_allocate_impl();
-    this->derived()._run_impl(m_dst, m_src);
-    m_dst = this->derived()._scale_impl(this->derived()._reflect_spectrum_impl(m_dst));
+    this->derived().allocate(m_dst);
+    this->derived().run(m_dst, m_src);
+    m_dst = this->derived().scale(this->derived().reflectSpectrum(m_dst));
   }
 
  protected:
@@ -165,8 +184,8 @@ class FFTImplBase {
       std::enable_if_t<FFT1D && (DstType::SizeAtCompileTime == Dynamic || SrcType::SizeAtCompileTime == Dynamic) &&
                            sizeof(SFINAE_T),
                        int> = 0>
-  EIGEN_STRONG_INLINE void _allocate_impl() {
-    m_dst.resize(R2CHalfSpectrum ? this->nfft() / 2 + 1 : this->nfft());
+  EIGEN_STRONG_INLINE void _allocate_impl(DstType& dst) {
+    dst.resize(R2CHalfSpectrum ? this->nfft() / 2 + 1 : this->nfft());
     eigen_assert(internal::check_implication(R2CHalfSpectrum, m_src.size() / 2 + 1 == m_dst.size()) &&
                  "INVALID_VECTOR_DIMENSIONS_FOR_HALFSPECTRUM_R2C_FFT");
     eigen_assert(internal::check_implication(C2RHalfSpectrum, m_dst.size() / 2 + 1 == m_src.size()) &&
@@ -180,8 +199,8 @@ class FFTImplBase {
       std::enable_if_t<FFT2D && (DstType::SizeAtCompileTime == Dynamic || SrcType::SizeAtCompileTime == Dynamic) &&
                            sizeof(SFINAE_T),
                        int> = 0>
-  EIGEN_STRONG_INLINE void _allocate_impl() {
-    m_dst.resize(R2CHalfSpectrum ? this->nfft0() / 2 + 1 : this->nfft0(), this->nfft1());
+  EIGEN_STRONG_INLINE void _allocate_impl(DstType& dst) {
+    dst.resize(R2CHalfSpectrum ? this->nfft0() / 2 + 1 : this->nfft0(), this->nfft1());
     eigen_assert(internal::check_implication(R2CHalfSpectrum,
                                              m_src.rows() / 2 + 1 == m_dst.rows() && m_src.cols() == m_dst.cols()) &&
                  "INVALID_MATRIX_DIMENSIONS_FOR_HALFSPECTRUM_R2C_FFT");
@@ -196,7 +215,7 @@ class FFTImplBase {
   template <typename SFINAE_T = int, std::enable_if_t<DstType::SizeAtCompileTime != Dynamic &&
                                                           SrcType::SizeAtCompileTime != Dynamic && sizeof(SFINAE_T),
                                                       int> = 0>
-  EIGEN_STRONG_INLINE void _allocate_impl() {
+  EIGEN_STRONG_INLINE void _allocate_impl(DstType& /*dst*/) {
     // do nothing - static checks in traits<FFTImplBase>
   }
 
@@ -343,6 +362,9 @@ struct traits<FFTImplBase<Derived, DstType, SrcType, Options, Direction, NFFT0, 
   using typename Base::DstScalar;
   using typename Base::RealScalar;
   using typename Base::SrcScalar;
+
+  using ScaleReturnType = DstType&;
+  using ReflectSpectrumReturnType = DstType&;
 
   using Base::has_opt;
 };
