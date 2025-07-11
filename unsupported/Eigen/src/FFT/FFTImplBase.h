@@ -100,15 +100,15 @@ class FFTImplBase {
     eigen_assert(nfft1 >= 0 && (FFTColsAtCompileTime == Dynamic || FFTColsAtCompileTime == nfft1));
   }
 
-  EIGEN_CONSTEXPR Index nfft() const EIGEN_NOEXCEPT {
+  EIGEN_STRONG_INLINE EIGEN_CONSTEXPR Index nfft() const EIGEN_NOEXCEPT {
     return _nfft.value() == Dynamic ? (C2RHalfSpectrum ? m_dst.size() : m_src.size()) : _nfft.value();
   }
 
-  EIGEN_CONSTEXPR Index nfft0() const EIGEN_NOEXCEPT {
+  EIGEN_STRONG_INLINE EIGEN_CONSTEXPR Index nfft0() const EIGEN_NOEXCEPT {
     return _nfft0.value() == Dynamic ? (C2RHalfSpectrum ? m_dst.rows() : m_src.rows()) : _nfft0.value();
   }
 
-  EIGEN_CONSTEXPR Index nfft1() const EIGEN_NOEXCEPT {
+  EIGEN_STRONG_INLINE EIGEN_CONSTEXPR Index nfft1() const EIGEN_NOEXCEPT {
     return _nfft1.value() == Dynamic ? m_src.cols() : _nfft1.value();
   }
 

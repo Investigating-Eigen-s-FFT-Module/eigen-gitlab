@@ -16,7 +16,7 @@
 
 namespace Eigen {
 // TODO: maybe add Scalar template for backward comp.
-template <int Options = FFTOption::Defaults>
+template <int Options = FFTOption::Defaults, typename BackEnd = UsePocketFFT<>>
 class FFT {
   // Validate flags
   EIGEN_STATIC_ASSERT(FFTOption::validate<Options>::value, YOU_PASSED_INVALID_FLAGS_TO_EIGEN_FFT)
@@ -27,14 +27,14 @@ class FFT {
  public:
   // Alias to allow defaulting the typename LhsType to void even though it is the first template parameter
   // of FFTReturnType
-  template <typename RhsType, int Options_, bool Direction, Index... CompileTimeNFFTs>
-  using FFTReturnTypeUnknownLhs = FFTReturnType<void, RhsType, Options_, Direction, CompileTimeNFFTs...>;
+  template <typename BackEnd_, typename RhsType, int Options_, bool Direction, Index... CompileTimeNFFTs>
+  using FFTReturnTypeUnknownLhs = FFTReturnType<BackEnd_, void, RhsType, Options_, Direction, CompileTimeNFFTs...>;
 
   template <Index... CompileTimeNFFTs, typename DstType, typename SrcType, typename... RunTimeNFFTArgs>
   EIGEN_STRONG_INLINE void fwd(DenseBase<DstType>& dst, DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) {
     EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
                         YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_FWD)
-    using Impl = typename internal::fft_impl_selector<DstType, SrcType, Options, Forward, CompileTimeNFFTs...>::type;
+    using Impl = typename BackEnd::type<DstType, SrcType, Options, Forward, CompileTimeNFFTs...>;
     Impl(dst.derived(), src.derived(), nffts...).compute();
   }
 
@@ -42,7 +42,7 @@ class FFT {
   EIGEN_STRONG_INLINE void inv(DenseBase<DstType>& dst, DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) {
     EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
                         YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_INV)
-    using Impl = typename internal::fft_impl_selector<DstType, SrcType, Options, Inverse, CompileTimeNFFTs...>::type;
+    using Impl = typename BackEnd::type<DstType, SrcType, Options, Inverse, CompileTimeNFFTs...>;
     Impl(dst.derived(), src.derived(), nffts...).compute();
   }
 
@@ -51,41 +51,41 @@ class FFT {
   template <Index... CompileTimeNFFTs, typename SrcType, typename... RunTimeNFFTArgs,
             typename EnableIf = std::enable_if_t<
                 internal::reduce_all<internal::is_convertible<RunTimeNFFTArgs, Index>::value...>::value>>
-  const EIGEN_STRONG_INLINE FFTReturnTypeUnknownLhs<SrcType, Options, Forward, CompileTimeNFFTs...> fwd(
+  const EIGEN_STRONG_INLINE FFTReturnTypeUnknownLhs<BackEnd, SrcType, Options, Forward, CompileTimeNFFTs...> fwd(
       const DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) const {
     EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
                         YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_FWD)
-    return FFTReturnTypeUnknownLhs<SrcType, Options, Forward, CompileTimeNFFTs...>(src.derived(), nffts...);
+    return FFTReturnTypeUnknownLhs<BackEnd, SrcType, Options, Forward, CompileTimeNFFTs...>(src.derived(), nffts...);
   }
 
   template <Index... CompileTimeNFFTs, typename SrcType, typename... RunTimeNFFTArgs,
             typename EnableIf = std::enable_if_t<
                 internal::reduce_all<internal::is_convertible<RunTimeNFFTArgs, Index>::value...>::value>>
-  const EIGEN_STRONG_INLINE FFTReturnTypeUnknownLhs<SrcType, Options, Inverse, CompileTimeNFFTs...> inv(
+  const EIGEN_STRONG_INLINE FFTReturnTypeUnknownLhs<BackEnd, SrcType, Options, Inverse, CompileTimeNFFTs...> inv(
       const DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) const {
     EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
                         YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_INV)
-    return FFTReturnTypeUnknownLhs<SrcType, Options, Inverse, CompileTimeNFFTs...>(src.derived(), nffts...);
+    return FFTReturnTypeUnknownLhs<BackEnd, SrcType, Options, Inverse, CompileTimeNFFTs...>(src.derived(), nffts...);
   }
 
   template <typename DstType, Index... CompileTimeNFFTs, typename SrcType, typename... RunTimeNFFTArgs,
             typename EnableIf = std::enable_if_t<
                 internal::reduce_all<internal::is_convertible<RunTimeNFFTArgs, Index>::value...>::value>>
-  const EIGEN_STRONG_INLINE FFTReturnType<DstType, SrcType, Options, Forward, CompileTimeNFFTs...> fwd(
+  const EIGEN_STRONG_INLINE FFTReturnType<BackEnd, DstType, SrcType, Options, Forward, CompileTimeNFFTs...> fwd(
       const DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) const {
     EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
                         YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_FWD)
-    return FFTReturnType<DstType, SrcType, Options, Forward, CompileTimeNFFTs...>(src.derived(), nffts...);
+    return FFTReturnType<BackEnd, DstType, SrcType, Options, Forward, CompileTimeNFFTs...>(src.derived(), nffts...);
   }
 
   template <typename DstType, Index... CompileTimeNFFTs, typename SrcType, typename... RunTimeNFFTArgs,
             typename EnableIf = std::enable_if_t<
                 internal::reduce_all<internal::is_convertible<RunTimeNFFTArgs, Index>::value...>::value>>
-  const EIGEN_STRONG_INLINE FFTReturnType<DstType, SrcType, Options, Inverse, CompileTimeNFFTs...> inv(
+  const EIGEN_STRONG_INLINE FFTReturnType<BackEnd, DstType, SrcType, Options, Inverse, CompileTimeNFFTs...> inv(
       const DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) const {
     EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
                         YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_INV)
-    return FFTReturnType<DstType, SrcType, Options, Inverse, CompileTimeNFFTs...>(src.derived(), nffts...);
+    return FFTReturnType<BackEnd, DstType, SrcType, Options, Inverse, CompileTimeNFFTs...>(src.derived(), nffts...);
   }
 };
 }  // namespace Eigen

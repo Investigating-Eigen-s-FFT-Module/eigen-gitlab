@@ -14,8 +14,9 @@
 #include "./InternalHeaderCheck.h"
 
 namespace Eigen {
-template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-class FFTReturnType : public DenseBase<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>> {
+template <typename BackEnd, typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0 = Dynamic,
+          Index NFFT1 = Dynamic>
+class FFTReturnType : public DenseBase<FFTReturnType<BackEnd, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>> {
  public:
   using Base = DenseBase<FFTReturnType>;
   using PlainObject = typename internal::traits<FFTReturnType>::PlainObject;
@@ -107,8 +108,8 @@ class FFTReturnType : public DenseBase<FFTReturnType<LhsType, RhsType, Options, 
 
 namespace internal {
 
-template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct traits<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
+template <typename BackEnd, typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct traits<FFTReturnType<BackEnd, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
     : fft_traits<LhsType, RhsType, Options, Direction, NFFT0, NFFT1> {
   using Base = fft_traits<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
   using typename Base::DstScalar;
@@ -132,9 +133,8 @@ struct traits<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
     OuterStrideAtCompileTime = LhsType::OuterStrideAtCompileTime,
   };
 
-  using PlainObject =
-      typename internal::plain_matrix_type_dense<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>,
-                                                 XprKind, Flags>::type;
+  using PlainObject = typename internal::plain_matrix_type_dense<
+      FFTReturnType<BackEnd, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>, XprKind, Flags>::type;
 };
 
 template <typename RhsType>
@@ -154,8 +154,8 @@ struct traits<fft_dst_default_type<RhsType>> : traits<RhsType> {
   };
 };
 
-template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct traits<FFTReturnType<void, RhsType, Options, Direction, NFFT0, NFFT1>> {
+template <typename BackEnd, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct traits<FFTReturnType<BackEnd, void, RhsType, Options, Direction, NFFT0, NFFT1>> {
   using DefaultLhsType = typename internal::fft_dst_default_type<RhsType>::type;
   using DefaultLHSTraits = traits<DefaultLhsType>;
 
@@ -245,21 +245,22 @@ struct traits<FFTReturnType<void, RhsType, Options, Direction, NFFT0, NFFT1>> {
   };
 
   // Can also be Array type
-  using PlainObject = typename plain_matrix_type_dense<FFTReturnType<void, RhsType, Options, Direction, NFFT0, NFFT1>,
-                                                       XprKind, Flags>::type;
+  using PlainObject =
+      typename plain_matrix_type_dense<FFTReturnType<BackEnd, void, RhsType, Options, Direction, NFFT0, NFFT1>, XprKind,
+                                       Flags>::type;
 };
 
-template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct evaluator<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
-    : evaluator<typename FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::PlainObject> {
-  using XprType = FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
+template <typename BackEnd, typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct evaluator<FFTReturnType<BackEnd, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
+    : evaluator<typename FFTReturnType<BackEnd, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::PlainObject> {
+  using XprType = FFTReturnType<BackEnd, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
   using PlainObject = typename XprType::PlainObject;
   using Base = evaluator<PlainObject>;
 
   enum { Flags = Base::Flags | EvalBeforeNestingBit, CoeffReadCost = HugeCost, Alignment = Base::Alignment };
 
   explicit evaluator(const XprType& fft_expr) : m_result(fft_expr.rows(), fft_expr.cols()) {
-    using Impl = typename internal::fft_impl_selector<PlainObject, RhsType, Options, Direction, NFFT0, NFFT1>::type;
+    using Impl = typename BackEnd::type<PlainObject, RhsType, Options, Direction, NFFT0, NFFT1>;
 
     internal::construct_at<Base>(this, m_result);
     Impl(m_result, fft_expr.rhs(), fft_expr.nfft0(), fft_expr.nfft1()).compute();
@@ -269,17 +270,17 @@ struct evaluator<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT
   PlainObject m_result;
 };
 
-template <typename DstXprType, typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0,
-          Index NFFT1>
+template <typename BackEnd, typename DstXprType, typename LhsType, typename RhsType, int Options, bool Direction,
+          Index NFFT0, Index NFFT1>
 struct Assignment<
-    DstXprType, FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>,
+    DstXprType, FFTReturnType<BackEnd, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>,
     internal::assign_op<typename DstXprType::Scalar,
-                        typename FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::Scalar>,
+                        typename FFTReturnType<BackEnd, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::Scalar>,
     Dense2Dense> {
-  using SrcXprType = FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
+  using SrcXprType = FFTReturnType<BackEnd, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
   static void run(DstXprType& dst, const SrcXprType& src,
                   const internal::assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>&) {
-    using Impl = typename internal::fft_impl_selector<DstXprType, RhsType, Options, Direction, NFFT0, NFFT1>::type;
+    using Impl = typename BackEnd::type<DstXprType, RhsType, Options, Direction, NFFT0, NFFT1>;
     Impl(dst, src.rhs(), src.nfft0(), src.nfft1()).compute();
   }
 };
