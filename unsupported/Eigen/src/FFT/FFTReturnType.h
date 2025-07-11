@@ -7,31 +7,31 @@
 // Public License v. 2.0. If a copy of the MPL was not distributed
 // with this file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-#ifndef EIGEN_FFT_EXPR_H
-#define EIGEN_FFT_EXPR_H
+#ifndef EIGEN_FFT_RETURNTYPE_H
+#define EIGEN_FFT_RETURNTYPE_H
 
 // IWYU pragma: private
 #include "./InternalHeaderCheck.h"
 
 namespace Eigen {
-template <typename Derived, typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-class FFTExprImpl : public DenseBase<Derived> {
+template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
+class FFTReturnType : public DenseBase<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>> {
  public:
-  using Base = DenseBase<Derived>;
-  using PlainObject = typename internal::traits<Derived>::PlainObject;
+  using Base = DenseBase<FFTReturnType>;
+  using PlainObject = typename internal::traits<FFTReturnType>::PlainObject;
 
-  EIGEN_DENSE_PUBLIC_INTERFACE(Derived)
+  EIGEN_DENSE_PUBLIC_INTERFACE(FFTReturnType)
 
   enum FFTTraits {
-    HalfSpectrumEnabled = internal::traits<Derived>::HalfSpectrumEnabled,
-    R2CHalfSpectrum = internal::traits<Derived>::R2CHalfSpectrum,
-    FFTSizeAtCompileTime = internal::traits<Derived>::FFTSizeAtCompileTime,
-    FFTRowsAtCompileTime = internal::traits<Derived>::FFTRowsAtCompileTime,
-    FFTColsAtCompileTime = internal::traits<Derived>::FFTColsAtCompileTime,
+    HalfSpectrumEnabled = internal::traits<FFTReturnType>::HalfSpectrumEnabled,
+    R2CHalfSpectrum = internal::traits<FFTReturnType>::R2CHalfSpectrum,
+    FFTSizeAtCompileTime = internal::traits<FFTReturnType>::FFTSizeAtCompileTime,
+    FFTRowsAtCompileTime = internal::traits<FFTReturnType>::FFTRowsAtCompileTime,
+    FFTColsAtCompileTime = internal::traits<FFTReturnType>::FFTColsAtCompileTime,
   };
 
   template <typename InputType>
-  explicit FFTExprImpl(const InputType& rhs)
+  explicit FFTReturnType(const InputType& rhs)
       : m_rhs(rhs.derived()),
         m_rows(RowsAtCompileTime),
         m_cols(ColsAtCompileTime),
@@ -47,7 +47,7 @@ class FFTExprImpl : public DenseBase<Derived> {
   }
 
   template <typename InputType>
-  explicit FFTExprImpl(const InputType& rhs, const StorageIndex nfft)
+  explicit FFTReturnType(const InputType& rhs, const StorageIndex nfft)
       : m_rhs(rhs.derived()),
         m_rows(RowsAtCompileTime == 1 ? 1
                : R2CHalfSpectrum      ? nfft / 2 + 1
@@ -58,12 +58,12 @@ class FFTExprImpl : public DenseBase<Derived> {
         _nfft(nfft),
         _nfft0(RowsAtCompileTime == 1 ? 1 : nfft),
         _nfft1(ColsAtCompileTime == 1 ? 1 : nfft) {
-    EIGEN_STATIC_ASSERT_VECTOR_ONLY(Derived)
+    EIGEN_STATIC_ASSERT_VECTOR_ONLY(FFTReturnType)
     eigen_assert(nfft >= 0);
   }
 
   template <typename InputType>
-  explicit FFTExprImpl(const InputType& rhs, const StorageIndex nfft0, const StorageIndex nfft1)
+  explicit FFTReturnType(const InputType& rhs, const StorageIndex nfft0, const StorageIndex nfft1)
       : m_rhs(rhs.derived()),
         m_rows(R2CHalfSpectrum ? nfft0 / 2 + 1 : nfft0),
         m_cols(nfft1),
@@ -105,35 +105,10 @@ class FFTExprImpl : public DenseBase<Derived> {
   const internal::variable_if_dynamic<StorageIndex, FFTColsAtCompileTime> _nfft1;
 };
 
-template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-class FFTExpr : public FFTExprImpl<FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>, LhsType, RhsType,
-                                   Options, Direction, NFFT0, NFFT1> {
- public:
-  using Base = FFTExprImpl<FFTExpr, LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
-  using Base::Base;
-};
-
 namespace internal {
 
-template <typename RhsType>
-struct fft_dst_default_type {
-  using type = typename plain_matrix_type_dense<fft_dst_default_type<RhsType>, typename traits<RhsType>::XprKind,
-                                                RhsType::Flags>::type;
-};
-
-template <typename RhsType>
-struct traits<fft_dst_default_type<RhsType>> : traits<RhsType> {
-  using Scalar = std::complex<typename RhsType::RealScalar>;
-  enum {
-    RowsAtCompileTime = Dynamic,
-    ColsAtCompileTime = Dynamic,
-    MaxRowsAtCompileTime = Dynamic,
-    MaxColsATCompileTime = Dynamic,
-  };
-};
-
 template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct traits<FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
+struct traits<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
     : fft_traits<LhsType, RhsType, Options, Direction, NFFT0, NFFT1> {
   using Base = fft_traits<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
   using typename Base::DstScalar;
@@ -158,58 +133,29 @@ struct traits<FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
   };
 
   using PlainObject =
-      typename internal::plain_matrix_type_dense<FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>, XprKind,
-                                                 Flags>::type;
+      typename internal::plain_matrix_type_dense<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>,
+                                                 XprKind, Flags>::type;
 };
 
-template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct evaluator<FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
-    : evaluator<typename FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::PlainObject> {
-  using XprType = FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
-  using PlainObject = typename XprType::PlainObject;
-  using Base = evaluator<PlainObject>;
-
-  enum { Flags = Base::Flags | EvalBeforeNestingBit, CoeffReadCost = HugeCost, Alignment = Base::Alignment };
-
-  explicit evaluator(const XprType& fft_expr) : m_result(fft_expr.rows(), fft_expr.cols()) {
-    using Impl = typename internal::fft_impl_selector<PlainObject, RhsType, Options, Direction, NFFT0, NFFT1>::type;
-
-    internal::construct_at<Base>(this, m_result);
-    Impl(m_result, fft_expr.rhs(), fft_expr.nfft0(), fft_expr.nfft1()).compute();
-  }
-
- protected:
-  PlainObject m_result;
+template <typename RhsType>
+struct fft_dst_default_type {
+  using type = typename plain_matrix_type_dense<fft_dst_default_type<RhsType>, typename traits<RhsType>::XprKind,
+                                                RhsType::Flags>::type;
 };
 
-template <typename DstXprType, typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0,
-          Index NFFT1>
-struct Assignment<DstXprType, FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>,
-                  internal::assign_op<typename DstXprType::Scalar,
-                                      typename FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::Scalar>,
-                  Dense2Dense> {
-  using SrcXprType = FFTExpr<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
-  static void run(DstXprType& dst, const SrcXprType& src,
-                  const internal::assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>&) {
-    using Impl = typename internal::fft_impl_selector<DstXprType, RhsType, Options, Direction, NFFT0, NFFT1>::type;
-    Impl(dst, src.rhs(), src.nfft0(), src.nfft1()).compute();
-  }
+template <typename RhsType>
+struct traits<fft_dst_default_type<RhsType>> : traits<RhsType> {
+  using Scalar = std::complex<typename RhsType::RealScalar>;
+  enum {
+    RowsAtCompileTime = Dynamic,
+    ColsAtCompileTime = Dynamic,
+    MaxRowsAtCompileTime = Dynamic,
+    MaxColsATCompileTime = Dynamic,
+  };
 };
-}  // namespace internal
 
 template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-class FFTExprUnknownLhs : public FFTExprImpl<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>,
-                                             typename internal::fft_dst_default_type<RhsType>::type, RhsType, Options,
-                                             Direction, NFFT0, NFFT1> {
- public:
-  using Base = FFTExprImpl<FFTExprUnknownLhs, typename internal::fft_dst_default_type<RhsType>::type, RhsType, Options,
-                           Direction, NFFT0, NFFT1>;
-  using Base::Base;
-};
-
-namespace internal {
-template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct traits<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>> {
+struct traits<FFTReturnType<void, RhsType, Options, Direction, NFFT0, NFFT1>> {
   using DefaultLhsType = typename internal::fft_dst_default_type<RhsType>::type;
   using DefaultLHSTraits = traits<DefaultLhsType>;
 
@@ -299,14 +245,14 @@ struct traits<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>> {
   };
 
   // Can also be Array type
-  using PlainObject = typename plain_matrix_type_dense<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>,
+  using PlainObject = typename plain_matrix_type_dense<FFTReturnType<void, RhsType, Options, Direction, NFFT0, NFFT1>,
                                                        XprKind, Flags>::type;
 };
 
-template <typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct evaluator<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>>
-    : evaluator<typename FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>::PlainObject> {
-  using XprType = FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>;
+template <typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+struct evaluator<FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>>
+    : evaluator<typename FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::PlainObject> {
+  using XprType = FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
   using PlainObject = typename XprType::PlainObject;
   using Base = evaluator<PlainObject>;
 
@@ -323,12 +269,14 @@ struct evaluator<FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>>
   PlainObject m_result;
 };
 
-template <typename DstXprType, typename RhsType, int Options, bool Direction, Index NFFT0, Index NFFT1>
-struct Assignment<DstXprType, FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>,
-                  internal::assign_op<typename DstXprType::Scalar,
-                                      typename FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>::Scalar>,
-                  Dense2Dense> {
-  using SrcXprType = FFTExprUnknownLhs<RhsType, Options, Direction, NFFT0, NFFT1>;
+template <typename DstXprType, typename LhsType, typename RhsType, int Options, bool Direction, Index NFFT0,
+          Index NFFT1>
+struct Assignment<
+    DstXprType, FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>,
+    internal::assign_op<typename DstXprType::Scalar,
+                        typename FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>::Scalar>,
+    Dense2Dense> {
+  using SrcXprType = FFTReturnType<LhsType, RhsType, Options, Direction, NFFT0, NFFT1>;
   static void run(DstXprType& dst, const SrcXprType& src,
                   const internal::assign_op<typename DstXprType::Scalar, typename SrcXprType::Scalar>&) {
     using Impl = typename internal::fft_impl_selector<DstXprType, RhsType, Options, Direction, NFFT0, NFFT1>::type;
@@ -337,4 +285,4 @@ struct Assignment<DstXprType, FFTExprUnknownLhs<RhsType, Options, Direction, NFF
 };
 }  // namespace internal
 }  // namespace Eigen
-#endif  // EIGEN_FFT_EXPR_H
+#endif  // EIGEN_FFT_RETURNTYPE_H

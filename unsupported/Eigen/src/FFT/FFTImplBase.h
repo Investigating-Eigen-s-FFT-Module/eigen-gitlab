@@ -19,15 +19,9 @@ namespace FFTOption {
 enum : int {
   Scaled = 0x1,
   Unscaled = 0x2,
-  InPlace = 0x4,  // may be specific to FFTW
-  OutPlace = 0x8,
   HalfSpectrum = 0x10,
   FullSpectrum = 0x20,
-  Threaded = 0x40,  // TODO: may need more specific flags (threading implementation, nr threads ...) seper
-  Serial = 0x80,
-  Real = 0x100,
-  Complex = 0x200,
-  Defaults = Scaled | OutPlace | FullSpectrum | Serial
+  Defaults = Scaled | FullSpectrum,
   // TODO: Move these to the implementation-specific headers. Only here for now for reference.
   // FFTW API flags
   // PlanMeasure
@@ -37,12 +31,17 @@ enum : int {
   // PocketFFT API flags
   // CacheTwiddles
 };
+
+template <int Options>
+struct validate {
+  enum {
+    value = (Options & Scaled) ^ (Options & Unscaled) &&         // Either scaled or unscaled, not both
+            (Options & HalfSpectrum) ^ (Options & FullSpectrum)  // Either half or full spectrum, not both
+  };
+};
 }  // namespace FFTOption
 
-namespace FFTDetail {
-
-using namespace FFTOption;
-
+// TODO: Match Eigen's template naming for SFINAE (typename EnableIf)
 template <typename Derived, typename DstType, typename SrcType, int Options, bool Direction, Index NFFT0, Index NFFT1>
 class FFTImplBase {
  public:
@@ -140,26 +139,28 @@ class FFTImplBase {
   }
 
  protected:
-  template <typename SFINAE_T = int, std::enable_if_t<Inverse && has_opt(Scaled) && sizeof(SFINAE_T), int> = 0>
+  template <typename SFINAE_T = int,
+            std::enable_if_t<Inverse && has_opt(FFTOption::Scaled) && sizeof(SFINAE_T), int> = 0>
   EIGEN_STRONG_INLINE DstType& _scale_impl(DstType& dst) {
     return dst * (static_cast<DstScalar>(1.0) / static_cast<DstScalar>(this->nfft()));
   }
 
-  template <typename SFINAE_T = int, std::enable_if_t<(Forward || has_opt(Unscaled)) && sizeof(SFINAE_T), int> = 0>
+  template <typename SFINAE_T = int,
+            std::enable_if_t<(Forward || has_opt(FFTOption::Unscaled)) && sizeof(SFINAE_T), int> = 0>
   EIGEN_STRONG_INLINE DstType& _scale_impl(DstType& dst) {
     // do nothing
     return dst;
   }
 
   template <typename SFINAE_T = int,
-            std::enable_if_t<R2C && has_opt(FullSpectrum) && FFT1D && sizeof(SFINAE_T), int> = 0>
+            std::enable_if_t<R2C && has_opt(FFTOption::FullSpectrum) && FFT1D && sizeof(SFINAE_T), int> = 0>
   EIGEN_STRONG_INLINE DstType& _reflect_spectrum_impl(DstType& dst) {
     dst.tail((this->nfft() + 1) / 2 - 1).noalias() = dst.segment(1, (this->nfft() + 1) / 2 - 1).reverse().conjugate();
     return dst;
   }
 
   template <typename SFINAE_T = int,
-            std::enable_if_t<R2C && has_opt(FullSpectrum) && FFT2D && sizeof(SFINAE_T), int> = 0>
+            std::enable_if_t<R2C && has_opt(FFTOption::FullSpectrum) && FFT2D && sizeof(SFINAE_T), int> = 0>
   EIGEN_STRONG_INLINE DstType& _reflect_spectrum_impl(DstType& dst) {
     // TODO: This is correct but definitely needs to be optimized.
     //       Look into Eigen::Seq Eigen::fix(?) and the like.
@@ -173,7 +174,8 @@ class FFTImplBase {
     return dst;
   }
 
-  template <typename SFINAE_T = int, std::enable_if_t<(!R2C || has_opt(HalfSpectrum)) && sizeof(SFINAE_T), int> = 0>
+  template <typename SFINAE_T = int,
+            std::enable_if_t<(!R2C || has_opt(FFTOption::HalfSpectrum)) && sizeof(SFINAE_T), int> = 0>
   EIGEN_STRONG_INLINE DstType& _reflect_spectrum_impl(DstType& dst) {
     // do nothing
     return dst;
@@ -219,15 +221,12 @@ class FFTImplBase {
     // do nothing - static checks in traits<FFTImplBase>
   }
 
-  const typename internal::ref_selector<DstType>::non_const_type m_dst;
-  const typename internal::ref_selector<SrcType>::type m_src;
+  typename internal::ref_selector<DstType>::non_const_type m_dst;
+  typename internal::ref_selector<SrcType>::type m_src;
   const internal::variable_if_dynamic<Index, FFTSizeAtCompileTime> _nfft;
   const internal::variable_if_dynamic<Index, FFTRowsAtCompileTime> _nfft0;
   const internal::variable_if_dynamic<Index, FFTColsAtCompileTime> _nfft1;
 };
-}  // namespace FFTDetail
-
-using FFTDetail::FFTImplBase;  // Bring to Eigen scope without exposing FFTOption scope
 
 namespace internal {
 

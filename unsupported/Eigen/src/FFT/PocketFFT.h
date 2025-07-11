@@ -91,7 +91,7 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
     const shape_t axes = {0};
     const stride_t stride_in = {src.innerStride() * sizeof(SrcScalar)};
     const stride_t stride_out = {dst.innerStride() * sizeof(DstScalar)};
-    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
+    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
     const RealScalar scaling_fact =
         Forward ? static_cast<RealScalar>(1.0) : 1.0 / static_cast<RealScalar>(this->nfft());
@@ -108,7 +108,7 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
                                 static_cast<ptrdiff_t>(src.colStride() * sizeof(SrcScalar))};
     const stride_t stride_out = {static_cast<ptrdiff_t>(dst.rowStride() * sizeof(DstScalar)),
                                  static_cast<ptrdiff_t>(dst.colStride() * sizeof(DstScalar))};
-    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
+    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
     const RealScalar scaling_fact =
         Forward ? static_cast<RealScalar>(1.0) : 1.0 / static_cast<RealScalar>(this->nfft());
@@ -124,7 +124,7 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
     constexpr size_t axis = static_cast<size_t>(0);
     const stride_t stride_in = {src.innerStride() * sizeof(SrcScalar)};
     const stride_t stride_out = {dst.innerStride() * sizeof(DstScalar)};
-    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
+    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
     const RealScalar scaling_fact = static_cast<RealScalar>(1.0);
     r2c(shape, stride_in, stride_out, axis, Forward, src_p, dst_p, scaling_fact,
@@ -140,7 +140,7 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
                                 static_cast<ptrdiff_t>(src.colStride() * sizeof(SrcScalar))};
     const stride_t stride_out = {static_cast<ptrdiff_t>(dst.rowStride() * sizeof(DstScalar)),
                                  static_cast<ptrdiff_t>(dst.colStride() * sizeof(DstScalar))};
-    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
+    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
     const RealScalar scaling_fact = static_cast<RealScalar>(1.0);
     r2c(shape, stride_in, stride_out, axes, Forward, src_p, dst_p, scaling_fact,
@@ -155,7 +155,7 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
     constexpr size_t axis = static_cast<size_t>(0);
     const stride_t stride_in = {src.innerStride() * sizeof(SrcScalar)};
     const stride_t stride_out = {dst.innerStride() * sizeof(DstScalar)};
-    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
+    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
     const RealScalar scaling_fact = 1.0 / static_cast<RealScalar>(this->nfft());
     c2r(shape, stride_in, stride_out, axis, Forward, src_p, dst_p, scaling_fact,
@@ -172,7 +172,7 @@ class PocketFFT : public FFTImplBase<PocketFFT<DstType, SrcType, Options, Direct
                                 static_cast<ptrdiff_t>(src.colStride() * sizeof(SrcScalar))};
     const stride_t stride_out = {static_cast<ptrdiff_t>(dst.rowStride() * sizeof(DstScalar)),
                                  static_cast<ptrdiff_t>(dst.colStride() * sizeof(DstScalar))};
-    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.eval().data());
+    const SrcScalar* src_p = static_cast<const SrcScalar*>(src.data());
     DstScalar* dst_p = static_cast<DstScalar*>(dst.data());
     const RealScalar scaling_fact = 1.0 / static_cast<RealScalar>(this->nfft());
     c2r(shape, stride_in, stride_out, axes, Forward, src_p, dst_p, scaling_fact,
@@ -190,7 +190,7 @@ struct traits<PocketFFT<DstType, SrcType, Options, Direction, NFFT0, NFFT1>>
   // Add any PocketFFT-specific traits here
 };
 
-template <typename DstType, typename SrcType, int Options, bool Direction, Index NFFT0, Index NFFT1>
+template <typename DstType, typename SrcType, int Options, bool Direction, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
 struct fft_impl_selector {
   using type = PocketFFT<DstType, SrcType, Options, Direction, NFFT0, NFFT1>;
 };

@@ -23,7 +23,7 @@
 // IWYU pragma: begin_exports
 #include "src/FFT/FFTImplBase.h"
 #include "src/FFT/PocketFFT.h"
-#include "src/FFT/FFTExpr.h"
+#include "src/FFT/FFTReturnType.h"
 #include "src/FFT/FFT.h"
 // IWYU pragma: end_exports
 
