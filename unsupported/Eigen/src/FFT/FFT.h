@@ -15,102 +15,79 @@
 #include "./InternalHeaderCheck.h"
 
 namespace Eigen {
-namespace FFTDetail {       // Detail namespace allows introducing other scopes such as
-using namespace FFTOption;  // this one without exposing it to the `Eigen` scope
 // TODO: maybe add Scalar template for backward comp.
-template <int Options = Defaults | 0x400>
+template <int Options = FFTOption::Defaults, typename BackEnd = UsePocketFFT<>>
 class FFT {
- public:
-  // TODO: add another NFFT template arg (rows + cols), also runtime arg
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
-    Impl::allocate(dst, src);
-  }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void allocateFwd(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
-    Impl::allocate(dst, src, nfft);
-  }
-
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void allocateInv(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
-    Impl::allocate(dst, src);
-  }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void allocateInv(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
-    Impl::allocate(dst, src, nfft);
-  }
-
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void fwd(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
-    // Note: keeping track of allocation is likely unnecessary;
-    //       The call below should be at most an inlined resize() call
-    //       which already efficiently checks if (re)allocation is needed.
-    Impl::allocate(dst, src);
-    Impl::run(dst, src);
-    // Will only compute symmetric conjugate if applicable based on template params
-    Impl::reflectSpectrum(dst, src);
-    // For now, the default implementation only scales on inverse, but a different fft_impl_base
-    // derived struct could theoretically scale on both calls, hence `scale` is still called here
-    Impl::scale(dst, src);
-  }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void fwd(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Forward, NFFT0, NFFT1>::type;
-    Impl::allocate(dst, src, nfft);
-    Impl::run(dst, src);
-    Impl::reflectSpectrum(dst, src);
-    Impl::scale(dst, src);
-  }
-
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void inv(DstMatrixType& dst, SrcMatrixType& src) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
-    Impl::allocate(dst, src);
-    Impl::run(dst, src);
-    Impl::scale(dst, src);
-  }
-  template <typename DstMatrixType, typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  inline void inv(DstMatrixType& dst, SrcMatrixType& src, const Index nfft) {
-    using Impl =
-        typename internal::fft_impl_selector<DstMatrixType, SrcMatrixType, Options, Inverse, NFFT0, NFFT1>::type;
-    Impl::allocate(dst, src, nfft);
-    Impl::run(dst, src);
-    Impl::scale(dst, src);
-  }
-
-  // TEST UNARY, TODO: MAKE FINAL
-  template <typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  const inline FFTExpr<SrcMatrixType, Options, true, NFFT0, NFFT1> fwd(const SrcMatrixType& src) const {
-    return FFTExpr<SrcMatrixType, Options, Forward, NFFT0, NFFT1>(src);
-  }
-
-  template <typename SrcMatrixType, Index NFFT0 = Dynamic, Index NFFT1 = Dynamic>
-  const inline FFTExpr<SrcMatrixType, Options, false, NFFT0, NFFT1> inv(const SrcMatrixType& src) const {
-    return FFTExpr<SrcMatrixType, Options, Inverse, NFFT0, NFFT1>(src);
-  }
+  // Validate flags
+  EIGEN_STATIC_ASSERT(FFTOption::validate<Options>::value, YOU_PASSED_INVALID_FLAGS_TO_EIGEN_FFT)
 
  private:
   enum : bool { Forward = true, Inverse = false };
 
-  // TODO: Handle run-time options
-  // const int m_opts;
+ public:
+  // Alias to allow defaulting the typename LhsType to void even though it is the first template parameter
+  // of FFTReturnType
+  template <typename BackEnd_, typename RhsType, int Options_, bool Direction, Index... CompileTimeNFFTs>
+  using FFTReturnTypeUnknownLhs = FFTReturnType<BackEnd_, void, RhsType, Options_, Direction, CompileTimeNFFTs...>;
+
+  template <Index... CompileTimeNFFTs, typename DstType, typename SrcType, typename... RunTimeNFFTArgs>
+  EIGEN_STRONG_INLINE void fwd(DenseBase<DstType>& dst, DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) {
+    EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
+                        YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_FWD)
+    using Impl = typename BackEnd::type<DstType, SrcType, Options, Forward, CompileTimeNFFTs...>;
+    Impl(dst.derived(), src.derived(), nffts...).compute();
+  }
+
+  template <Index... CompileTimeNFFTs, typename DstType, typename SrcType, typename... RunTimeNFFTArgs>
+  EIGEN_STRONG_INLINE void inv(DenseBase<DstType>& dst, DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) {
+    EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
+                        YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_INV)
+    using Impl = typename BackEnd::type<DstType, SrcType, Options, Inverse, CompileTimeNFFTs...>;
+    Impl(dst.derived(), src.derived(), nffts...).compute();
+  }
+
+  // To avoid ambiguous function declarations with variadic `nffts` arguments, a use of SFINAE
+  // is needed which tells the compiler that it cannot pass e.g. a destination matrix `dst` as an `nffts` argument.
+  template <Index... CompileTimeNFFTs, typename SrcType, typename... RunTimeNFFTArgs,
+            typename EnableIf = std::enable_if_t<
+                internal::reduce_all<internal::is_convertible<RunTimeNFFTArgs, Index>::value...>::value>>
+  const EIGEN_STRONG_INLINE FFTReturnTypeUnknownLhs<BackEnd, SrcType, Options, Forward, CompileTimeNFFTs...> fwd(
+      const DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) const {
+    EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
+                        YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_FWD)
+    return FFTReturnTypeUnknownLhs<BackEnd, SrcType, Options, Forward, CompileTimeNFFTs...>(src.derived(), nffts...);
+  }
+
+  template <Index... CompileTimeNFFTs, typename SrcType, typename... RunTimeNFFTArgs,
+            typename EnableIf = std::enable_if_t<
+                internal::reduce_all<internal::is_convertible<RunTimeNFFTArgs, Index>::value...>::value>>
+  const EIGEN_STRONG_INLINE FFTReturnTypeUnknownLhs<BackEnd, SrcType, Options, Inverse, CompileTimeNFFTs...> inv(
+      const DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) const {
+    EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
+                        YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_INV)
+    return FFTReturnTypeUnknownLhs<BackEnd, SrcType, Options, Inverse, CompileTimeNFFTs...>(src.derived(), nffts...);
+  }
+
+  template <typename DstType, Index... CompileTimeNFFTs, typename SrcType, typename... RunTimeNFFTArgs,
+            typename EnableIf = std::enable_if_t<
+                internal::reduce_all<internal::is_convertible<RunTimeNFFTArgs, Index>::value...>::value>>
+  const EIGEN_STRONG_INLINE FFTReturnType<BackEnd, DstType, SrcType, Options, Forward, CompileTimeNFFTs...> fwd(
+      const DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) const {
+    EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
+                        YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_FWD)
+    return FFTReturnType<BackEnd, DstType, SrcType, Options, Forward, CompileTimeNFFTs...>(src.derived(), nffts...);
+  }
+
+  template <typename DstType, Index... CompileTimeNFFTs, typename SrcType, typename... RunTimeNFFTArgs,
+            typename EnableIf = std::enable_if_t<
+                internal::reduce_all<internal::is_convertible<RunTimeNFFTArgs, Index>::value...>::value>>
+  const EIGEN_STRONG_INLINE FFTReturnType<BackEnd, DstType, SrcType, Options, Inverse, CompileTimeNFFTs...> inv(
+      const DenseBase<SrcType>& src, const RunTimeNFFTArgs... nffts) const {
+    EIGEN_STATIC_ASSERT(sizeof...(nffts) <= 2 || sizeof...(CompileTimeNFFTs) <= 2,
+                        YOU_PASSED_TOO_MANY_ARGUMENTS_TO_FFT_INV)
+    return FFTReturnType<BackEnd, DstType, SrcType, Options, Inverse, CompileTimeNFFTs...>(src.derived(), nffts...);
+  }
 };
-}  // namespace FFTDetail
-
-using FFTDetail::FFT;  // Bring to Eigen scope
-
 }  // namespace Eigen
 
 #endif  // EIGEN_FFT_H
